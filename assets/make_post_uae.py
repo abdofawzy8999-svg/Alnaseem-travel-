@@ -44,7 +44,7 @@ tx(cy+50,'جنيه',44,white,maxw=200)
 tx(cy+105,'لمدة شهرين',40,dark,maxw=250)
 d.rounded_rectangle((90,960,W-90,1050),radius=34,fill=white)
 tx(1005,'الإصدار خلال 48 ساعة',56,blue,maxw=860)
-for i,s2 in enumerate(['تأشيرة الإمارات لمدة شهرين بضمان الإصدار','نراجع أوراقك معاك قبل التقديم']):
+for i,s2 in enumerate(['بضمان الإصدار .. أو فلوسك كاملة','نراجع أوراقك معاك قبل التقديم']):
     y=1100+i*62
     d.ellipse((W-150-24,y-24,W-150+24,y+24),fill=orange)
     d.line([(W-150-11,y),(W-150-2,y+10),(W-150+12,y-9)],fill=white,width=6,joint='curve')
