@@ -642,7 +642,7 @@ function watchTeam() {
     render();
   }, () => {});
 }
-$("#t-add").onclick = async () => {
+$("#team-add").onclick = async () => {
   const em = $("#t-email").value.trim().toLowerCase(), nm = $("#t-name").value.trim(), st = $("#t-st");
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) { st.className = "status err"; st.textContent = "اكتب إيميل صحيح."; return; }
   try { await F.setDoc(F.doc(db, "team", em), { name: nm, addedAt: Date.now(), by: myEmail }); $("#t-email").value = ""; $("#t-name").value = ""; st.className = "status good"; st.textContent = "اتضاف ✓ ابعتله لينك التطبيق يدخل بنفس الإيميل."; }
