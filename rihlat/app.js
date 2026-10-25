@@ -508,7 +508,7 @@ function render() {
   const items = [];
   view.forEach(t => KEYS.forEach(k => { const s = stateOf(t, k, now); if (s === "due" || (s === "late" && now - schedule(t)[k].until < 48 * H)) items.push({ t, k, s, due: schedule(t)[k].due }); }));
   items.sort((a, b) => a.due - b.due);
-  const myDue = mine.reduce((n, t) => n + KEYS.filter(k => stateOf(t, k, now) === "due").length, 0);
+  const myDue = mine.reduce((n, t) => n + KEYS.filter(k => { const st = stateOf(t, k, now); return st === "due" || (st === "late" && now - schedule(t)[k].until < 48 * H); }).length, 0);
   $("#stats").innerHTML = `<span class="chip">${view.filter(t => t.depUtc > now).length} حجز جاي</span>`;
   const badge = $("#nav-badge"); badge.hidden = !myDue; badge.textContent = myDue;
   document.title = myDue ? `(${myDue}) رحلات النسيم` : "رحلات النسيم";
