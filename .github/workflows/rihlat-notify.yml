@@ -22,9 +22,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: Install firebase-admin
+      - name: Install libraries
         working-directory: rihlat/notifier
-        run: npm install --no-save --no-audit --no-fund firebase-admin@12.7.0
+        run: npm install --no-save --no-audit --no-fund @google-cloud/firestore@7.11.0 google-auth-library@9.15.0
       - name: Send due notifications
         working-directory: rihlat/notifier
         env:
