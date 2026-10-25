@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       test_flight:
-        description: "Optional test lookup: FLIGHTNO|FROM|TO|YYYY-MM-DD|HH:MM"
+        description: "Optional test lookup: FLIGHTNO|FROM|YYYY-MM-DD|HH:MM"
         required: false
         default: ""
 permissions:
@@ -35,6 +35,7 @@ jobs:
         env:
           FIREBASE_PROJECT: naseem-rihlat
           TEST_FLIGHT: ${{ github.event.inputs.test_flight }}
+          AERODATABOX_KEY: ${{ secrets.AERODATABOX_KEY }}
           APP_URL: https://abdofawzy8999-svg.github.io/Alnaseem-travel-/rihlat/
         run: node notify.mjs
       - name: Keep the schedule alive (GitHub pauses idle schedules after 60 days)
