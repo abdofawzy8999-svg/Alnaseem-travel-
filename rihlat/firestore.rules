@@ -1,0 +1,33 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function email() { return request.auth.token.email.lower(); }
+    function isOwner() {
+      return signedIn() && request.auth.token.email_verified == true
+        && email() == 'abdofawzy8999@gmail.com';
+    }
+    function isTeam() {
+      return isOwner() || (signedIn() && request.auth.token.email != null
+        && exists(/databases/$(database)/documents/team/$(email())));
+    }
+
+    match /team/{em} {
+      allow read: if isTeam();
+      allow write: if isOwner();
+    }
+    match /trips/{id} {
+      allow read, create, update, delete: if isTeam();
+    }
+    match /tickets/{id} {
+      allow read, delete: if isTeam();
+      allow create: if isTeam() && request.resource.data.data is string
+        && request.resource.data.data.size() < 1000000;
+    }
+    match /tokens/{token} {
+      allow create, update: if isTeam() && request.resource.data.uid == request.auth.uid;
+      allow delete: if isTeam();
+      allow read: if isOwner();
+    }
+  }
+}
