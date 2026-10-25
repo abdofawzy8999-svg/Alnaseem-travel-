@@ -26,7 +26,7 @@ self.addEventListener("notificationclick", e => {
   })());
 });
 
-const SHELL = "naseem-shell-v2";
+const SHELL = "naseem-shell-v3";
 const FILES = ["./", "./index.html", "./app.js", "./config.js", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png"];
 self.addEventListener("install", e => { self.skipWaiting(); e.waitUntil(caches.open(SHELL).then(c => c.addAll(FILES)).catch(() => {})); });
 self.addEventListener("activate", e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== SHELL).map(k => caches.delete(k)))).then(() => clients.claim())); });
@@ -34,6 +34,6 @@ self.addEventListener("fetch", e => {
   const u = new URL(e.request.url);
   if (e.request.method !== "GET" || u.origin !== location.origin) return;
   // network first, cache as fallback so updates show up immediately
-  e.respondWith(fetch(e.request).then(r => { const cp = r.clone(); caches.open(SHELL).then(c => c.put(e.request, cp)).catch(() => {}); return r; })
+  e.respondWith(fetch(e.request, { cache: "no-cache" }).then(r => { const cp = r.clone(); caches.open(SHELL).then(c => c.put(e.request, cp)).catch(() => {}); return r; })
     .catch(() => caches.match(e.request).then(r => r || caches.match("./index.html"))));
 });

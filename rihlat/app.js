@@ -6,14 +6,31 @@ const M = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-messagi
 const AC = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-app-check.js`);
 
 const app = initializeApp(CFG.firebase);
-try { AC.initializeAppCheck(app, { provider: new AC.ReCaptchaEnterpriseProvider(CFG.recaptchaKey), isTokenAutoRefreshEnabled: true }); } catch (e) { console.warn("app check", e); }
-let aiModel = null;
-async function getModel() {
-  if (aiModel) return aiModel;
-  const AI = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-ai.js`);
-  const ai = AI.getAI(app, { backend: new AI.GoogleAIBackend() });
-  aiModel = AI.getGenerativeModel(ai, { model: CFG.aiModel || "gemini-2.5-flash", generationConfig: { responseMimeType: "application/json", temperature: 0 } });
-  return aiModel;
+if (CFG.recaptchaKey) try { AC.initializeAppCheck(app, { provider: new AC.ReCaptchaEnterpriseProvider(CFG.recaptchaKey), isTokenAutoRefreshEnabled: true }); } catch (e) { console.warn("app check", e); }
+const aiModels = {};
+let AIMOD = null;
+async function getModel(name) {
+  if (aiModels[name]) return aiModels[name];
+  AIMOD = AIMOD || await import(`https://www.gstatic.com/firebasejs/${V}/firebase-ai.js`);
+  const ai = AIMOD.getAI(app, { backend: new AIMOD.GoogleAIBackend() });
+  return aiModels[name] = AIMOD.getGenerativeModel(ai, { model: name, generationConfig: { responseMimeType: "application/json", temperature: 0 } });
+}
+// Try the configured models in order; retry briefly when Google is busy.
+async function generateWithFallback(parts) {
+  const names = CFG.aiModels || ["gemini-3.8-flash", "gemini-flash-latest", "gemini-flash-lite-latest"];
+  let lastErr;
+  for (const name of names) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try { const m = await getModel(name); return await m.generateContent(parts); }
+      catch (e) {
+        lastErr = e; const msg = String(e && e.message || "");
+        if (/\[404|no longer available|not found/i.test(msg)) break;           // model gone: next model
+        if (/\[(429|500|503)|high demand|overloaded|unavailable/i.test(msg)) { await new Promise(r => setTimeout(r, 1500 * (attempt + 1))); continue; }
+        throw e;
+      }
+    }
+  }
+  throw lastErr;
 }
 const auth = A.getAuth(app);
 const db = F.initializeFirestore(app, { localCache: F.persistentLocalCache({ tabManager: F.persistentMultipleTabManager() }) });
@@ -251,7 +268,6 @@ async function readTicket() {
   st.className = "status"; st.textContent = "بنقرأ بيانات التذكرة أوتوماتيك… استنى ثواني";
   $("#f-auto").hidden = true;
   try {
-    const model = await getModel();
     const today = new Date().toISOString().slice(0, 10);
     const prompt = `This image is a screenshot of an airline e-ticket, booking confirmation or itinerary for a customer of an Egyptian travel agency.
 Extract exactly what is printed. Return ONLY a JSON object of this shape:
@@ -262,7 +278,7 @@ Rules: include every flight segment in travel order (outbound, connections and r
 "phone" only if a passenger contact phone number is printed, else "". "isUmrah" true only if the ticket mentions Umrah/عمرة.
 Use "" for anything not visible and never guess. If the year is missing, use the next future date after ${today}.`;
     const b64 = ticketData.split(",")[1];
-    const res = await model.generateContent([prompt, { inlineData: { data: b64, mimeType: "image/jpeg" } }]);
+    const res = await generateWithFallback([prompt, { inlineData: { data: b64, mimeType: "image/jpeg" } }]);
     if (my !== readSeq) return;
     let txt = res.response.text().trim().replace(/^```(?:json)?/i, "").replace(/```$/, "");
     const r = JSON.parse(txt);
