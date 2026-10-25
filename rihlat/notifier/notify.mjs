@@ -1,5 +1,5 @@
 // Runs every ~10 minutes on GitHub Actions.
-//  1) ~24h before each flight, looks the flight up (Gemini + Google Search) and flags schedule changes.
+//  1) Pushes an alert when the in-app flight check found a schedule change.
 //  2) Sends push notifications for due customer messages — only to the employee who owns the booking.
 // Credentials come from GitHub OIDC -> Google Workload Identity (no stored key).
 import { Firestore } from "@google-cloud/firestore";
@@ -7,9 +7,8 @@ import { GoogleAuth } from "google-auth-library";
 
 const projectId = process.env.FIREBASE_PROJECT || "naseem-rihlat";
 const APP_URL = process.env.APP_URL || "https://abdofawzy8999-svg.github.io/Alnaseem-travel-/rihlat/";
-const MODELS = (process.env.CHECK_MODELS || "gemini-flash-latest,gemini-flash-lite-latest").split(",");
 const db = new Firestore({ projectId });
-const auth = new GoogleAuth({ scopes: ["https://www.googleapis.com/auth/cloud-platform", "https://www.googleapis.com/auth/firebase.messaging", "https://www.googleapis.com/auth/generative-language"] });
+const auth = new GoogleAuth({ scopes: ["https://www.googleapis.com/auth/cloud-platform", "https://www.googleapis.com/auth/firebase.messaging"] });
 const client = await auth.getClient();
 const H = 3600e3, now = Date.now();
 
@@ -25,40 +24,6 @@ const LABEL = {
   embassy: { d24: "تذكير ميعاد السفارة قبلها بيوم", h4: "ميعاد السفارة بعد 4 ساعات", arr: "متابعة بعد ميعاد السفارة" }
 };
 const what = t => kindOf(t) === "flight" ? `${t.from}←${t.to}` : kindOf(t) === "hotel" ? (t.place || "فندق") : (t.place || "سفارة");
-
-/* ---------- Gemini via REST with the service account ---------- */
-async function gemini(prompt, { search = false } = {}) {
-  let last;
-  for (const m of MODELS) {
-    try {
-      const r = await client.request({
-        url: `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`,
-        method: "POST", headers: { "x-goog-user-project": projectId }, timeout: 60000,
-        data: { contents: [{ role: "user", parts: [{ text: prompt }] }], ...(search ? { tools: [{ google_search: {} }] } : {}), generationConfig: { temperature: 0 } }
-      });
-      const c = r.data.candidates && r.data.candidates[0];
-      const text = ((c && c.content && c.content.parts) || []).map(p => p.text || "").join("");
-      const sources = (((c && c.groundingMetadata && c.groundingMetadata.groundingChunks) || []).map(g => g.web && g.web.uri).filter(Boolean)).slice(0, 3);
-      return { text, sources, model: m };
-    } catch (e) { last = e; console.log(`gemini ${m} failed: ${JSON.stringify((e.response && e.response.data) || e.message).slice(0, 200)}`); }
-  }
-  throw last;
-}
-const parseJson = s => { const m = String(s).match(/\{[\s\S]*\}/); return m ? JSON.parse(m[0]) : null; };
-const toMin = hhmm => { const m = /^(\d{1,2}):(\d{2})/.exec(hhmm || ""); return m ? +m[1] * 60 + +m[2] : null; };
-
-async function checkFlight(t) {
-  const prompt = `Search the web for the CURRENT status/schedule of flight ${t.flightNo} (${t.airline || "airline"}) from ${t.from} to ${t.to} departing on ${t.depDate} (local date at ${t.from}).
-Prefer the airline's official site and flight trackers (FlightAware, Flightradar24, FlightStats, the airport website).
-The booking we have says: depart ${t.depDate} ${t.depTime} local, arrive ${t.arrDate || ""} ${t.arrTime || ""} local.
-Reply with ONLY this JSON: {"found": boolean, "status": "on_time"|"delayed"|"cancelled"|"rescheduled"|"unknown", "depDate": "YYYY-MM-DD", "depTime": "HH:MM", "arrDate": "YYYY-MM-DD", "arrTime": "HH:MM", "note": "short Arabic note"}
-Times are 24h local times at each airport. "found" is true only if you found schedule information for this exact flight number and date. Never invent times; use "" if unknown.`;
-  const { text, sources } = await gemini(prompt, { search: true });
-  const r = parseJson(text) || { found: false, status: "unknown" };
-  const depChanged = r.found && r.depTime && (r.depDate && r.depDate !== t.depDate || Math.abs(toMin(r.depTime) - toMin(t.depTime)) >= 15);
-  const changed = !!(r.found && (r.status === "cancelled" || depChanged));
-  return { at: now, found: !!r.found, status: r.status || "unknown", depDate: r.depDate || "", depTime: r.depTime || "", arrDate: r.arrDate || "", arrTime: r.arrTime || "", note: String(r.note || "").slice(0, 300), sources, changed, resolved: false };
-}
 
 /* ---------- push ---------- */
 async function tokensFor(email) {
@@ -87,32 +52,20 @@ async function push(email, title, body, tag) {
   console.log(`push to ${email}: ${ok}/${tokens.length} devices`);
 }
 
-/* ---------- optional manual test: workflow_dispatch input ---------- */
-if (process.env.TEST_FLIGHT) {
-  const [flightNo, from, to, depDate, depTime] = process.env.TEST_FLIGHT.split("|");
-  console.log("TEST", JSON.stringify(await checkFlight({ flightNo, from, to, depDate, depTime, airline: "" })));
-}
-
 const snap = await db.collection("trips").where("depUtc", ">", now - 3 * 24 * H).get();
 
-// 1) flight checks (~24h before departure, once)
+// 1) schedule changes found by the in-app flight check (runs when the team opens the app ~24h before)
 const changesByOwner = {};
 for (const d of snap.docs) {
-  const t = d.data();
-  if (kindOf(t) !== "flight" || !t.flightNo || t.check) continue;
-  const left = t.depUtc - now;
-  if (left > 27 * H || left < 3 * H) continue;
-  try {
-    const check = await checkFlight(t);
-    await d.ref.update({ check });
-    console.log(`check ${t.flightNo} ${t.depDate}: found=${check.found} status=${check.status} changed=${check.changed}`);
-    if (check.changed) (changesByOwner[t.createdBy] = changesByOwner[t.createdBy] || []).push({ t, check });
-  } catch (e) { console.log(`check failed for ${t.flightNo}: ${e.message}`); }
+  const t = d.data(), c = t.check;
+  if (!c || !c.changed || c.resolved || c.alerted || t.depUtc < now) continue;
+  (changesByOwner[t.createdBy] = changesByOwner[t.createdBy] || []).push({ t, check: c, ref: d.ref });
 }
 for (const [email, list] of Object.entries(changesByOwner)) {
   if (!email) continue;
   const body = list.map(({ t, check }) => `${t.name} · ${t.flightNo}: ${check.status === "cancelled" ? "اتلغت" : `المعاد الجديد ${check.depDate} ${check.depTime}`}`).join("\n");
   await push(email, list.length === 1 ? `⚠️ تغيير في رحلة ${list[0].t.name}` : `⚠️ تغيير في ${list.length} رحلات`, body + "\nافتح التطبيق واعتمد المعاد الجديد", "naseem-change");
+  for (const x of list) await x.ref.update({ "check.alerted": now });
 }
 
 // 2) due customer messages, grouped by the employee who owns them
