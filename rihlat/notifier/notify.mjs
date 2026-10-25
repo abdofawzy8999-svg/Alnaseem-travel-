@@ -2,9 +2,9 @@
 // and sends a push notification to every team phone that enabled notifications.
 import admin from "firebase-admin";
 
-const sa = JSON.parse(process.env.FIREBASE_SA || "{}");
-if (!sa.project_id) { console.error("FIREBASE_SA secret is missing"); process.exit(1); }
-admin.initializeApp({ credential: admin.credential.cert(sa) });
+// Credentials come from GitHub OIDC -> Google Workload Identity (no stored key).
+const projectId = process.env.FIREBASE_PROJECT || "naseem-rihlat";
+admin.initializeApp({ credential: admin.credential.applicationDefault(), projectId });
 const db = admin.firestore();
 const APP_URL = process.env.APP_URL || "https://abdofawzy8999-svg.github.io/Alnaseem-travel-/rihlat/";
 const H = 3600e3, now = Date.now();
