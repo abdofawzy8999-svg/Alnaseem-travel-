@@ -105,7 +105,7 @@ details summary{cursor:pointer;font-weight:600;font-size:.85rem}
 .team-row{display:flex;justify-content:space-between;align-items:center;gap:8px;border-bottom:1px solid var(--line);padding:6px 0}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
-<script src="config.js?v=7"></script>
+<script src="config.js?v=8"></script>
 </head>
 <body>
 
@@ -230,8 +230,30 @@ details summary{cursor:pointer;font-weight:600;font-size:.85rem}
 </div>
 
 <div class="toast" id="toast" role="status" hidden></div>
-<div id="v-boot" class="center"><div class="muted">بنفتح التطبيق…</div></div>
+<div id="v-boot" class="center"><div class="login"><div class="muted">بنفتح التطبيق…</div>
+  <div id="boot-help" hidden style="display:flex;flex-direction:column;gap:10px">
+    <div class="small muted">الفتح طوّل أكتر من العادي.</div>
+    <button class="btn brand block" id="boot-reset">صلّح وافتح من جديد</button>
+    <div class="small muted mono" id="boot-err" style="direction:ltr;word-break:break-word"></div>
+  </div></div></div>
+<script>
+(function(){
+  var errs=[];
+  function note(m){ errs.push(String(m).slice(0,200)); var e=document.getElementById('boot-err'); if(e) e.textContent=errs.slice(-3).join(' | '); }
+  addEventListener('error',function(e){ note(e.message||e); });
+  addEventListener('unhandledrejection',function(e){ note(e.reason&&(e.reason.message||e.reason)); });
+  setTimeout(function(){ var b=document.getElementById('v-boot'); if(b && !b.hidden){ document.getElementById('boot-help').hidden=false; } },10000);
+  document.addEventListener('click',async function(e){
+    if(!e.target.closest('#boot-reset')) return;
+    e.target.disabled=true; e.target.textContent='بنصلّح…';
+    try{ (await navigator.serviceWorker.getRegistrations()).forEach(function(r){ r.unregister(); }); }catch(_){}
+    try{ (await caches.keys()).forEach(function(k){ caches.delete(k); }); }catch(_){}
+    try{ var dbs = indexedDB.databases ? await indexedDB.databases() : []; dbs.forEach(function(d){ if(d.name && /firestore/i.test(d.name)) indexedDB.deleteDatabase(d.name); }); }catch(_){}
+    setTimeout(function(){ location.replace(location.pathname + '?r=' + Date.now()); }, 800);
+  });
+})();
+</script>
 
-<script type="module" src="app.js?v=7"></script>
+<script type="module" src="app.js?v=8"></script>
 </body>
 </html>

@@ -8,7 +8,7 @@ const AC = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-app-ch
 const app = initializeApp(CFG.firebase);
 if (CFG.recaptchaKey) try { AC.initializeAppCheck(app, { provider: new AC.ReCaptchaEnterpriseProvider(CFG.recaptchaKey), isTokenAutoRefreshEnabled: true }); } catch (e) { console.warn("app check", e); }
 const auth = A.getAuth(app);
-const db = F.initializeFirestore(app, { localCache: F.persistentLocalCache({ tabManager: F.persistentMultipleTabManager() }) });
+const db = F.initializeFirestore(app, { localCache: F.memoryLocalCache() });
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -141,6 +141,7 @@ A.onAuthStateChanged(auth, async user => {
   isAdmin = myEmail === ADMIN && user.emailVerified;
   $("#me-email").textContent = myEmail;
   $("#w-email").textContent = myEmail;
+  show("v-app"); afterEnter();
   startData();
 });
 $("#w-retry").onclick = () => { if (me) startData(); };
