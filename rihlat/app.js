@@ -43,6 +43,57 @@ async function generateWithFallback(parts) {
   throw lastErr;
 }
 
+/* ---------------- flight check (~24h before, Gemini + Google Search) ---------------- */
+const searchModels = {};
+async function getSearchModel(name) {
+  if (searchModels[name]) return searchModels[name];
+  AIMOD = AIMOD || await import(`https://www.gstatic.com/firebasejs/${V}/firebase-ai.js`);
+  const ai = AIMOD.getAI(app, { backend: new AIMOD.GoogleAIBackend() });
+  return searchModels[name] = AIMOD.getGenerativeModel(ai, { model: name, tools: [{ googleSearch: {} }], generationConfig: { temperature: 0 } }, { timeout: 60000 });
+}
+const toMin = hhmm => { const m = /^(\d{1,2}):(\d{2})/.exec(hhmm || ""); return m ? +m[1] * 60 + +m[2] : NaN; };
+async function lookupFlight(t) {
+  const prompt = `Search the web for the CURRENT status/schedule of flight ${t.flightNo} (${t.airline || "airline"}) from ${t.from} to ${t.to} departing on ${t.depDate} (local date at ${t.from}).
+Prefer the airline's official website and flight trackers (FlightAware, Flightradar24, FlightStats, airport websites).
+Our booking says: depart ${t.depDate} ${t.depTime} local, arrive ${t.arrDate || ""} ${t.arrTime || ""} local.
+Reply with ONLY this JSON and nothing else: {"found": boolean, "status": "on_time"|"delayed"|"cancelled"|"rescheduled"|"unknown", "depDate": "YYYY-MM-DD", "depTime": "HH:MM", "arrDate": "YYYY-MM-DD", "arrTime": "HH:MM", "note": "short note in Egyptian Arabic"}
+Times are 24h local times at each airport. "found" is true only if you found schedule information for this exact flight number on this date. Never invent times; use "" if unknown.`;
+  let last;
+  for (const name of (CFG.searchModels || ["gemini-flash-latest", "gemini-flash-lite-latest", "gemini-3.8-flash"])) {
+    try {
+      const m = await getSearchModel(name);
+      const res = await m.generateContent(prompt);
+      const txt = res.response.text();
+      const j = txt.match(/\{[\s\S]*\}/); const r = j ? JSON.parse(j[0]) : { found: false };
+      const cand = res.response.candidates && res.response.candidates[0];
+      const sources = ((cand && cand.groundingMetadata && cand.groundingMetadata.groundingChunks) || []).map(g => g.web && g.web.uri).filter(Boolean).slice(0, 3);
+      const depChanged = r.found && r.depTime && ((r.depDate && r.depDate !== t.depDate) || Math.abs(toMin(r.depTime) - toMin(t.depTime)) >= 15);
+      return { at: Date.now(), by: myEmail, found: !!r.found, status: r.status || "unknown", depDate: r.depDate || "", depTime: r.depTime || "", arrDate: r.arrDate || "", arrTime: r.arrTime || "",
+        note: String(r.note || "").slice(0, 300), sources, changed: !!(r.found && (r.status === "cancelled" || depChanged)), resolved: false };
+    } catch (e) { last = e; console.warn("flight check", name, e); }
+  }
+  throw last;
+}
+const checking = new Set(), checkFailed = new Set();
+let checkRunning = false;
+async function autoCheckFlights() {
+  if (checkRunning || !loaded) return;
+  const now = Date.now();
+  const todo = trips.filter(t => kindOf(t) === "flight" && t.flightNo && !t.check && !checking.has(t.id) && !checkFailed.has(t.id)
+    && t.depUtc - now < 30 * H && t.depUtc - now > 2 * H && (isAdmin || t.createdBy === myEmail));
+  if (!todo.length) return;
+  checkRunning = true;
+  try {
+    for (const t of todo) {
+      checking.add(t.id); render();
+      try { const check = await lookupFlight(t); await F.updateDoc(F.doc(db, "trips", t.id), { check }); if (check.changed) toast(`⚠️ فيه تغيير في رحلة ${t.name}`); }
+      catch (e) { console.warn(e); checkFailed.add(t.id); if (/429|quota/i.test(String(e && e.message))) { todo.forEach(x => checkFailed.add(x.id)); break; } }
+      finally { checking.delete(t.id); }
+    }
+  } finally { checkRunning = false; render(); }
+}
+setInterval(autoCheckFlights, 5 * 60000);
+
 /* ---------------- views ---------------- */
 function show(id) { ["v-boot", "v-login", "v-wait", "v-app"].forEach(v => $("#" + v).hidden = v !== id); }
 let toastT;
@@ -199,7 +250,7 @@ function startData() {
     : F.query(F.collection(db, "trips"), F.where("createdBy", "==", myEmail), F.where("depUtc", ">", since), F.orderBy("depUtc"));
   unsubTrips = F.onSnapshot(q, snap => {
     trips = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
-    loaded = true; show("v-app"); afterEnter(); render();
+    loaded = true; show("v-app"); afterEnter(); render(); autoCheckFlights();
   }, err => {
     console.warn(err);
     if (err.code === "permission-denied") show("v-wait");
@@ -479,6 +530,7 @@ function render() {
       <div class="msg-top"><span class="msg-who">${esc(t.name)} <span class="kind">${KIND_NAME[kindOf(t)]}</span></span><span class="msg-kind">${LABELS[kindOf(t)][k][0]}</span></div>
       <div class="small muted"><span class="mono">+${esc(t.phone)}</span> · ${esc(titleOf(t))}${isAdmin && scope !== "me" ? " · " + esc(nameOf(t.createdBy)) : ""}</div>
       <div class="small muted">${kindOf(t) === "flight" ? "إقلاع" : kindOf(t) === "hotel" ? "دخول" : "الميعاد"} ${fmtFull(t.depUtc)} · ${s === "late" ? "<b style='color:var(--late)'>فات معادها</b>" : "معادها " + rel(due - now)}</div>
+      ${kindOf(t) === "flight" && k !== "arr" ? (checking.has(t.id) ? `<div class="small muted">⏳ بنتأكد من معاد الرحلة على النت قبل ما تبعت…</div>` : t.check ? (t.check.changed && !t.check.resolved ? `<div class="small" style="color:var(--late)"><b>⚠️ فيه تغيير في معاد الرحلة، شوف التنبيه فوق قبل ما تبعت.</b></div>` : t.check.found ? `<div class="ok-badge">✓ اتأكدنا من الرحلة ومفيش تغيير</div>` : `<div class="small muted">الفحص مالقاش بيانات للرحلة، اتأكد من موقع الشركة.</div>`) : "") : ""}
       <details><summary>نص الرسالة</summary><div class="msg-text">${esc(msgText(t, k))}</div></details>
       <div class="row"><a class="btn wa" href="${waLink(t, k)}" target="_blank" rel="noopener">افتح واتساب وابعت</a><button class="btn" data-sent="${t.id}" data-k="${k}">اتبعتت ✓</button></div>
     </article>`).join("") : `<div class="empty">مفيش رسايل مطلوبة دلوقتي ✓<br>أول ما ييجي معاد أي رسالة هيوصلك إشعار وهتظهر هنا بزرار واتساب جاهز.</div>`;
@@ -493,7 +545,7 @@ function render() {
     const dots = KEYS.map(k => { const s = stateOf(t, k, now); const lbl = { sent: "اتبعتت ✓", wait: fmtFull(sc[k].due), due: "دلوقتي", late: "فاتت" }[s];
       return `<span class="dot ${s === "wait" ? "" : s}"${s === "sent" ? ` data-undo="${t.id}" data-k="${k}" title="اضغط لو اتسجّلت غلط"` : ""}>${LABELS[kind][k][1]}: ${lbl}</span>`; }).join("");
     const when = kind === "flight" ? `إقلاع ${fmtTime(t.depUtc)}${t.arrUtc ? " · وصول " + fmtFull(t.arrUtc) : ""}` : kind === "hotel" ? `دخول ${fmtFull(t.depUtc)}${t.arrUtc ? " · خروج " + fmtFull(t.arrUtc) : ""}` : `الميعاد ${fmtTime(t.depUtc)}`;
-    const chk = kind === "flight" && t.check ? (t.check.changed ? (t.check.resolved ? `<span class="ok-badge">✓ اتعدّل بعد الفحص</span>` : `<span class="dot late">⚠️ فيه تغيير</span>`) : t.check.found ? `<span class="ok-badge">✓ اتفحصت قبلها بيوم ومفيش تغيير</span>` : `<span class="small muted">الفحص مالقاش بيانات للرحلة</span>`) : "";
+    const chk = kind === "flight" && checking.has(t.id) ? `<span class="small muted">⏳ بنتأكد من الرحلة على النت…</span>` : kind === "flight" && t.check ? (t.check.changed ? (t.check.resolved ? `<span class="ok-badge">✓ اتعدّل بعد الفحص</span>` : `<span class="dot late">⚠️ فيه تغيير</span>`) : t.check.found ? `<span class="ok-badge">✓ اتفحصت قبلها بيوم ومفيش تغيير</span>` : `<span class="small muted">الفحص مالقاش بيانات للرحلة</span>`) : "";
     const ids = t.ticketIds || (t.ticketId ? [t.ticketId] : []);
     return `<div class="trip">
       <div class="route">${esc(t.name)} <span class="kind">${KIND_NAME[kind]}</span> · ${esc(titleOf(t))}</div>
