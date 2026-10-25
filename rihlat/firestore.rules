@@ -3,31 +3,38 @@ service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
     function email() { return request.auth.token.email.lower(); }
-    function isOwner() {
+    function isAdmin() {
       return signedIn() && request.auth.token.email_verified == true
         && email() == 'abdofawzy8999@gmail.com';
     }
     function isTeam() {
-      return isOwner() || (signedIn() && request.auth.token.email != null
+      return isAdmin() || (signedIn() && request.auth.token.email != null
         && exists(/databases/$(database)/documents/team/$(email())));
     }
 
+    // team list: admin manages it; each employee can only read their own entry
     match /team/{em} {
-      allow read: if isTeam();
-      allow write: if isOwner();
+      allow read: if isAdmin() || (signedIn() && em == email());
+      allow write: if isAdmin();
     }
+    // bookings: every employee sees and edits only their own; the admin sees everything
     match /trips/{id} {
-      allow read, create, update, delete: if isTeam();
+      allow read: if isAdmin() || (isTeam() && resource.data.createdBy == email());
+      allow create: if isTeam() && request.resource.data.createdBy == email();
+      allow update: if isAdmin() || (isTeam() && resource.data.createdBy == email()
+                                     && request.resource.data.createdBy == email());
+      allow delete: if isAdmin() || (isTeam() && resource.data.createdBy == email());
     }
     match /tickets/{id} {
-      allow read, delete: if isTeam();
-      allow create: if isTeam() && request.resource.data.data is string
-        && request.resource.data.data.size() < 1000000;
+      allow read, delete: if isAdmin() || (isTeam() && resource.data.by == email());
+      allow create: if isTeam() && request.resource.data.by == email()
+        && request.resource.data.data is string && request.resource.data.data.size() < 1000000;
     }
     match /tokens/{token} {
-      allow create, update: if isTeam() && request.resource.data.uid == request.auth.uid;
+      allow create, update: if isTeam() && request.resource.data.uid == request.auth.uid
+        && request.resource.data.email == email();
       allow delete: if isTeam();
-      allow read: if isOwner();
+      allow read: if isAdmin();
     }
   }
 }

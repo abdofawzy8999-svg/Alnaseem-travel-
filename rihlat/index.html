@@ -80,6 +80,14 @@ details summary{cursor:pointer;font-weight:600;font-size:.85rem}
 .dots{display:flex;gap:6px;flex-wrap:wrap}
 .dot{font-size:.75rem;padding:2px 8px;border-radius:999px;background:var(--sunk);color:var(--muted);white-space:nowrap}
 .dot.sent{background:var(--ok-bg);color:var(--ok)} .dot.due{background:var(--due-bg);color:var(--due)} .dot.late{background:var(--late-bg);color:var(--late)}
+.thumbs{display:flex;gap:8px;flex-wrap:wrap}
+.thumbs figure{margin:0;position:relative}
+.thumbs img{width:72px;height:72px;object-fit:cover;border-radius:10px;border:1px solid var(--line);display:block}
+.thumbs button{position:absolute;top:-6px;inset-inline-end:-6px;width:24px;height:24px;border-radius:50%;border:0;background:var(--late);color:#fff;font-size:14px;line-height:24px;padding:0;cursor:pointer}
+.kind{font-size:.75rem;font-weight:700;padding:2px 8px;border-radius:999px;background:var(--sunk);color:var(--brand)}
+.change{border:1px solid var(--late);background:var(--late-bg);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px}
+.change a{color:inherit}
+.ok-badge{font-size:.75rem;color:var(--ok)}
 .ticket-img{max-width:100%;border-radius:10px;border:1px solid var(--line)}
 .nav{position:fixed;bottom:0;inset-inline:0;z-index:6;background:var(--surface);border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,1fr);padding-bottom:env(safe-area-inset-bottom,0px)}
 .nav button{font:inherit;background:none;border:0;color:var(--muted);height:var(--nav-h);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:.78rem;font-weight:600;cursor:pointer;position:relative}
@@ -97,7 +105,7 @@ details summary{cursor:pointer;font-weight:600;font-size:.85rem}
 .team-row{display:flex;justify-content:space-between;align-items:center;gap:8px;border-bottom:1px solid var(--line);padding:6px 0}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
-<script src="config.js?v=5"></script>
+<script src="config.js?v=6"></script>
 </head>
 <body>
 
@@ -139,51 +147,54 @@ details summary{cursor:pointer;font-weight:600;font-size:.85rem}
   </header>
   <main class="main">
     <div class="notice" id="push-hint" hidden></div>
+    <label id="scope-box" hidden style="flex-direction:row;align-items:center;gap:8px">عرض:
+      <select id="scope" style="flex:1"></select>
+    </label>
 
     <section id="t-queue" class="panel" aria-labelledby="q-h">
+      <div id="changes" hidden style="display:flex;flex-direction:column;gap:10px"></div>
       <h2 id="q-h">رسايل لازم تتبعت دلوقتي</h2>
-      <div id="queue"><div class="empty">بنحمّل الرحلات…</div></div>
+      <div id="queue"><div class="empty">بنحمّل…</div></div>
     </section>
 
     <section id="t-add" class="panel" aria-labelledby="f-h" hidden>
       <h2 id="f-h">إضافة عميل جديد</h2>
       <form id="form" novalidate style="display:flex;flex-direction:column;gap:12px">
         <label class="pick" id="pick">
-          <img id="f-prev" alt="صورة التذكرة" hidden>
-          <span class="big" id="pick-t">صوّر أو اختار اسكرين التذكرة</span>
-          <span class="small muted" id="pick-s">البيانات هتتقري منها أوتوماتيك</span>
-          <input type="file" id="f-file" accept="image/*" aria-label="صورة التذكرة">
+          <span class="big" id="pick-t">صوّر أو اختار الاسكرينات</span>
+          <span class="small muted" id="pick-s">تذاكر طيران، حجز فندق، ميعاد سفارة… تقدر تختار كذا صورة مرة واحدة والبيانات هتتقري أوتوماتيك</span>
+          <input type="file" id="f-file" accept="image/*" multiple aria-label="صور الحجوزات">
         </label>
+        <div class="thumbs" id="thumbs"></div>
         <div class="status" id="f-readst" role="status"></div>
         <label>رقم واتساب العميل<input id="f-phone" inputmode="tel" class="mono" placeholder="01012345678" required></label>
-        <button type="button" class="btn ghost small" id="f-manual" style="min-height:36px">مفيش صورة؟ اكتب البيانات بإيدك</button>
-        <div id="f-auto" hidden style="display:flex;flex-direction:column;gap:12px">
-          <div class="small muted">البيانات اللي اتقرت من التذكرة (راجعها بسرعة):</div>
-          <div class="fields">
-            <label>اسم العميل<input id="f-name" autocomplete="off" required></label>
-            <label>رقم الحجز (PNR)<input id="f-pnr" class="mono" autocomplete="off"></label>
-            <label>نوع الرحلة<select id="f-type"><option value="travel">سفر عادي</option><option value="umrah">عمرة</option></select></label>
-          </div>
-          <div id="segs" style="display:flex;flex-direction:column;gap:10px"></div>
-          <button type="button" class="btn ghost" id="f-addseg">+ رحلة تانية (عودة أو ترانزيت)</button>
+        <div class="fields">
+          <label>اسم العميل<input id="f-name" autocomplete="off" required></label>
+          <label>النوع<select id="f-type"><option value="travel">سفر عادي</option><option value="umrah">عمرة</option></select></label>
         </div>
-        <button type="submit" class="btn primary block" id="f-save">حفظ وجدولة الرسايل</button>
+        <div id="items" style="display:flex;flex-direction:column;gap:10px"></div>
+        <div class="row">
+          <button type="button" class="btn ghost small" data-additem="flight">+ رحلة طيران</button>
+          <button type="button" class="btn ghost small" data-additem="hotel">+ فندق</button>
+          <button type="button" class="btn ghost small" data-additem="embassy">+ ميعاد سفارة</button>
+        </div>
+        <button type="submit" class="btn primary block" id="f-save">حفظ وجدولة كل الرسايل</button>
         <div class="status" id="f-st"></div>
       </form>
     </section>
 
     <section id="t-trips" class="panel" aria-labelledby="u-h" hidden>
-      <div class="row" style="justify-content:space-between"><h2 id="u-h">الرحلات الجاية</h2>
+      <div class="row" style="justify-content:space-between"><h2 id="u-h">الحجوزات الجاية</h2>
         <label style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" id="showPast" style="width:auto;min-height:0"> اللي خلصت كمان</label>
       </div>
       <input id="search" type="search" placeholder="دوّر باسم العميل أو الرقم أو رقم الحجز">
-      <div id="upcoming"><div class="empty">بنحمّل الرحلات…</div></div>
+      <div id="upcoming"><div class="empty">بنحمّل…</div></div>
     </section>
 
     <section id="t-settings" hidden style="display:flex;flex-direction:column;gap:16px">
       <div class="panel">
         <h2>الإشعارات على الموبايل ده</h2>
-        <p class="small muted" style="margin:0" id="n-desc">لما رسالة لعميل يجي معادها هيوصلك إشعار حتى والتطبيق مقفول.</p>
+        <p class="small muted" style="margin:0" id="n-desc">هيوصلك إشعار لما رسالة لعميل من عملائك يجي معادها، أو لو رحلة اتغيّر معادها، حتى والتطبيق مقفول.</p>
         <button class="btn brand" id="n-on">فعّل الإشعارات</button>
         <div class="status" id="n-st"></div>
       </div>
@@ -194,8 +205,12 @@ details summary{cursor:pointer;font-weight:600;font-size:.85rem}
       </div>
       <div class="panel" id="team-box" hidden>
         <h2>الفريق</h2>
-        <p class="small muted" style="margin:0">ضيف إيميل كل واحد في التيم. بعد ما يتضاف يقدر يدخل ويستلم الإشعارات.</p>
-        <div class="row"><input id="t-email" type="email" placeholder="email@gmail.com" dir="ltr" style="flex:1"><button class="btn brand" id="t-add">إضافة</button></div>
+        <p class="small muted" style="margin:0">كل موظف بيشوف عملاءه هو بس وبيوصله إشعارات عملاءه بس. إنت بتشوف الكل.</p>
+        <div class="fields">
+          <label>اسم الموظف<input id="t-name" autocomplete="off"></label>
+          <label>إيميله<input id="t-email" type="email" placeholder="email@gmail.com" dir="ltr"></label>
+        </div>
+        <button class="btn brand" id="t-add">إضافة للفريق</button>
         <div id="team-list"></div>
         <div class="status" id="t-st"></div>
       </div>
@@ -209,7 +224,7 @@ details summary{cursor:pointer;font-weight:600;font-size:.85rem}
   <nav class="nav" aria-label="الأقسام">
     <button data-tab="queue" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>الرسايل<span class="badge" id="nav-badge" hidden></span></button>
     <button data-tab="add"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>إضافة</button>
-    <button data-tab="trips"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/></svg>الرحلات</button>
+    <button data-tab="trips"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/></svg>الحجوزات</button>
     <button data-tab="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>الإعدادات</button>
   </nav>
 </div>
@@ -217,6 +232,6 @@ details summary{cursor:pointer;font-weight:600;font-size:.85rem}
 <div class="toast" id="toast" role="status" hidden></div>
 <div id="v-boot" class="center"><div class="muted">بنفتح التطبيق…</div></div>
 
-<script type="module" src="app.js?v=5"></script>
+<script type="module" src="app.js?v=6"></script>
 </body>
 </html>

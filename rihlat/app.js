@@ -7,15 +7,25 @@ const AC = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-app-ch
 
 const app = initializeApp(CFG.firebase);
 if (CFG.recaptchaKey) try { AC.initializeAppCheck(app, { provider: new AC.ReCaptchaEnterpriseProvider(CFG.recaptchaKey), isTokenAutoRefreshEnabled: true }); } catch (e) { console.warn("app check", e); }
+const auth = A.getAuth(app);
+const db = F.initializeFirestore(app, { localCache: F.persistentLocalCache({ tabManager: F.persistentMultipleTabManager() }) });
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const CAIRO = "Africa/Cairo";
+const ADMIN = CFG.ownerEmail.toLowerCase();
+const COMPANY_WA = CFG.companyWhatsApp;
+const H = 3600e3;
+
+/* ---------------- AI (Gemini via Firebase AI Logic) ---------------- */
 const aiModels = {};
 let AIMOD = null;
 async function getModel(name) {
   if (aiModels[name]) return aiModels[name];
   AIMOD = AIMOD || await import(`https://www.gstatic.com/firebasejs/${V}/firebase-ai.js`);
   const ai = AIMOD.getAI(app, { backend: new AIMOD.GoogleAIBackend() });
-  return aiModels[name] = AIMOD.getGenerativeModel(ai, { model: name, generationConfig: { responseMimeType: "application/json", temperature: 0 } }, { timeout: 30000 });
+  return aiModels[name] = AIMOD.getGenerativeModel(ai, { model: name, generationConfig: { responseMimeType: "application/json", temperature: 0 } }, { timeout: 45000 });
 }
-// Try the configured models in order; retry briefly when Google is busy.
 async function generateWithFallback(parts) {
   const names = CFG.aiModels || ["gemini-flash-lite-latest", "gemini-3.8-flash", "gemini-flash-latest"];
   let lastErr;
@@ -24,7 +34,7 @@ async function generateWithFallback(parts) {
       try { const m = await getModel(name); return await m.generateContent(parts); }
       catch (e) {
         lastErr = e; const msg = String(e && e.message || "");
-        if (/\[404|no longer available|not found|abort|timeout/i.test(msg)) break;           // model gone: next model
+        if (/\[404|no longer available|not found|abort|timeout/i.test(msg)) break;
         if (/\[(429|500|503)|high demand|overloaded|unavailable/i.test(msg)) { await new Promise(r => setTimeout(r, 1500 * (attempt + 1))); continue; }
         throw e;
       }
@@ -32,14 +42,6 @@ async function generateWithFallback(parts) {
   }
   throw lastErr;
 }
-const auth = A.getAuth(app);
-const db = F.initializeFirestore(app, { localCache: F.persistentLocalCache({ tabManager: F.persistentMultipleTabManager() }) });
-
-const $ = s => document.querySelector(s);
-const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const CAIRO = "Africa/Cairo";
-const OWNER = CFG.ownerEmail.toLowerCase();
-const COMPANY_WA = CFG.companyWhatsApp;
 
 /* ---------------- views ---------------- */
 function show(id) { ["v-boot", "v-login", "v-wait", "v-app"].forEach(v => $("#" + v).hidden = v !== id); }
@@ -48,12 +50,11 @@ function toast(msg) { const t = $("#toast"); t.textContent = msg; t.hidden = fal
 function setTab(name) {
   ["queue", "add", "trips", "settings"].forEach(n => { $("#t-" + n).hidden = n !== name; });
   document.querySelectorAll(".nav button").forEach(b => { if (b.dataset.tab === name) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current"); });
+  $("#scope-box").hidden = !isAdmin || !(name === "queue" || name === "trips");
   scrollTo({ top: 0 });
   try { history.replaceState(null, "", "#" + name); } catch (_) {}
 }
 document.querySelectorAll(".nav button").forEach(b => b.onclick = () => setTab(b.dataset.tab));
-const startTab = (location.hash || "#queue").slice(1);
-setTab(["queue", "add", "trips", "settings"].includes(startTab) ? startTab : "queue");
 
 /* ---------------- auth ---------------- */
 const authErr = e => {
@@ -63,7 +64,6 @@ const authErr = e => {
   if (c.includes("email-already-in-use")) return "الإيميل ده عليه حساب بالفعل. دوس «دخول».";
   if (c.includes("weak-password")) return "كلمة السر لازم 6 حروف على الأقل.";
   if (c.includes("invalid-email")) return "الإيميل مكتوب غلط.";
-  if (c.includes("unauthorized-domain")) return "الدومين ده مش مسموح في إعدادات Firebase.";
   if (c.includes("network")) return "مفيش إنترنت. جرّب تاني.";
   return "الدخول ماتمّش (" + c + ").";
 };
@@ -82,14 +82,14 @@ $("#e-signup").onclick = async () => { $("#l-st").textContent = ""; try { await 
 document.addEventListener("click", e => { if (e.target.closest("[data-logout]")) A.signOut(auth); });
 A.getRedirectResult(auth).catch(e => { $("#l-st").textContent = authErr(e); });
 
-let me = null, unsubTrips = null, unsubTeam = null, isOwner = false;
+let me = null, myEmail = "", isAdmin = false, unsubTrips = null, unsubTeam = null;
 A.onAuthStateChanged(auth, async user => {
   me = user; if (unsubTrips) { unsubTrips(); unsubTrips = null; } if (unsubTeam) { unsubTeam(); unsubTeam = null; }
   if (!user) { show("v-login"); return; }
-  const email = (user.email || "").toLowerCase();
-  isOwner = email === OWNER && user.emailVerified;
-  $("#me-email").textContent = email;
-  $("#w-email").textContent = email;
+  myEmail = (user.email || "").toLowerCase();
+  isAdmin = myEmail === ADMIN && user.emailVerified;
+  $("#me-email").textContent = myEmail;
+  $("#w-email").textContent = myEmail;
   startData();
 });
 $("#w-retry").onclick = () => { if (me) startData(); };
@@ -104,18 +104,20 @@ function localToUtc(date, time, tz) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date || "") || !/^\d{1,2}:\d{2}$/.test(time || "")) return null;
   const [y, m, d] = date.split("-").map(Number), [h, mi] = time.split(":").map(Number);
   const guess = Date.UTC(y, m - 1, d, h, mi);
-  let ts = guess - tzOffset(guess, tz || CAIRO);
+  const ts = guess - tzOffset(guess, tz || CAIRO);
   return guess - tzOffset(ts, tz || CAIRO);
 }
+const validTz = z => { try { new Intl.DateTimeFormat("en", { timeZone: z }); return !!z; } catch (_) { return false; } };
 const fmtCairo = (ts, opt) => new Intl.DateTimeFormat("ar-EG", Object.assign({ timeZone: CAIRO }, opt)).format(new Date(ts));
 const fmtDay = ts => fmtCairo(ts, { weekday: "long", day: "numeric", month: "long" });
 const fmtTime = ts => fmtCairo(ts, { hour: "numeric", minute: "2-digit" });
 const fmtFull = ts => fmtCairo(ts, { weekday: "long", day: "numeric", month: "long", hour: "numeric", minute: "2-digit" });
 function fmtLocal(date, time) {
-  const ts = Date.UTC(...date.split("-").map((v, i) => i === 1 ? v - 1 : +v), ...time.split(":").map(Number));
+  if (!date) return { d: "", t: "" };
+  const ts = Date.UTC(...date.split("-").map((v, i) => i === 1 ? v - 1 : +v), ...(time || "00:00").split(":").map(Number));
   return {
     d: new Intl.DateTimeFormat("ar-EG", { timeZone: "UTC", weekday: "long", day: "numeric", month: "long" }).format(new Date(ts)),
-    t: new Intl.DateTimeFormat("ar-EG", { timeZone: "UTC", hour: "numeric", minute: "2-digit" }).format(new Date(ts))
+    t: time ? new Intl.DateTimeFormat("ar-EG", { timeZone: "UTC", hour: "numeric", minute: "2-digit" }).format(new Date(ts)) : ""
   };
 }
 function rel(ms) {
@@ -124,10 +126,11 @@ function rel(ms) {
   return ms >= 0 ? "بعد " + s : "من " + s;
 }
 
-/* ---------------- airports ---------------- */
+/* ---------------- airports / zones ---------------- */
 const AIRPORT_TZ = { CAI: "Africa/Cairo", HBE: "Africa/Cairo", SPX: "Africa/Cairo", HRG: "Africa/Cairo", SSH: "Africa/Cairo", LXR: "Africa/Cairo", ASW: "Africa/Cairo", ATZ: "Africa/Cairo", HMB: "Africa/Cairo", RMF: "Africa/Cairo", ALY: "Africa/Cairo",
   JED: "Asia/Riyadh", RUH: "Asia/Riyadh", MED: "Asia/Riyadh", DMM: "Asia/Riyadh", TIF: "Asia/Riyadh", AHB: "Asia/Riyadh", ELQ: "Asia/Riyadh", TUU: "Asia/Riyadh", YNB: "Asia/Riyadh", GIZ: "Asia/Riyadh", HAS: "Asia/Riyadh", AJF: "Asia/Riyadh", ULH: "Asia/Riyadh", HOF: "Asia/Riyadh", NUM: "Asia/Riyadh",
-  DXB: "Asia/Dubai", AUH: "Asia/Dubai", SHJ: "Asia/Dubai", DWC: "Asia/Dubai", RKT: "Asia/Dubai", KWI: "Asia/Kuwait", DOH: "Asia/Qatar", BAH: "Asia/Bahrain", MCT: "Asia/Muscat", SLL: "Asia/Muscat", AMM: "Asia/Amman", IST: "Europe/Istanbul", SAW: "Europe/Istanbul", BEY: "Asia/Beirut", TAS: "Asia/Tashkent", SKD: "Asia/Tashkent", ALA: "Asia/Almaty", NQZ: "Asia/Almaty", BKK: "Asia/Bangkok", KUL: "Asia/Kuala_Lumpur", CMN: "Africa/Casablanca", TUN: "Africa/Tunis", KRT: "Africa/Khartoum", LHR: "Europe/London", CDG: "Europe/Paris", FCO: "Europe/Rome" };
+  DXB: "Asia/Dubai", AUH: "Asia/Dubai", SHJ: "Asia/Dubai", DWC: "Asia/Dubai", RKT: "Asia/Dubai", KWI: "Asia/Kuwait", DOH: "Asia/Qatar", BAH: "Asia/Bahrain", MCT: "Asia/Muscat", SLL: "Asia/Muscat", AMM: "Asia/Amman", IST: "Europe/Istanbul", SAW: "Europe/Istanbul", BEY: "Asia/Beirut",
+  TAS: "Asia/Tashkent", SKD: "Asia/Tashkent", ALA: "Asia/Almaty", NQZ: "Asia/Almaty", BKK: "Asia/Bangkok", KUL: "Asia/Kuala_Lumpur", CMN: "Africa/Casablanca", TUN: "Africa/Tunis", KRT: "Africa/Khartoum", LHR: "Europe/London", CDG: "Europe/Paris", FCO: "Europe/Rome" };
 const TZ_OPTS = [["Africa/Cairo", "مصر"], ["Asia/Riyadh", "السعودية"], ["Asia/Dubai", "الإمارات"], ["Asia/Kuwait", "الكويت"], ["Asia/Qatar", "قطر"], ["Asia/Bahrain", "البحرين"], ["Asia/Muscat", "عُمان"], ["Asia/Amman", "الأردن"], ["Europe/Istanbul", "تركيا"], ["Asia/Beirut", "لبنان"], ["Asia/Tashkent", "أوزبكستان"], ["Asia/Almaty", "كازاخستان"], ["Asia/Bangkok", "تايلاند"], ["Asia/Kuala_Lumpur", "ماليزيا"], ["Africa/Casablanca", "المغرب"], ["Africa/Tunis", "تونس"], ["Africa/Khartoum", "السودان"], ["Europe/London", "بريطانيا"], ["Europe/Paris", "فرنسا"], ["Europe/Rome", "إيطاليا"]];
 
 /* ---------------- phone ---------------- */
@@ -141,31 +144,20 @@ function normPhone(raw) {
   return /^\d{10,15}$/.test(p) ? p : null;
 }
 
-/* ---------------- messages ---------------- */
-const KINDS = [
-  { key: "d24", label: "تذكير قبل السفر بـ 24 ساعة", short: "قبل 24 س" },
-  { key: "h4", label: "وقت الكاونتر (قبل الإقلاع بـ 4 ساعات)", short: "الكاونتر" },
-  { key: "arr", label: "رسالة الوصول بالسلامة", short: "الوصول" }
-];
+/* ---------------- kinds, schedule, messages ---------------- */
+const kindOf = t => t.kind || "flight";
+const KIND_NAME = { flight: "طيران", hotel: "فندق", embassy: "سفارة" };
+const KEYS = ["d24", "h4", "arr"];
+const LABELS = {
+  flight: { d24: ["تذكير قبل السفر بـ 24 ساعة", "قبل 24 س"], h4: ["وقت الكاونتر (قبل الإقلاع بـ 4 ساعات)", "الكاونتر"], arr: ["الوصول بالسلامة (لحظة النزول)", "الوصول"] },
+  hotel: { d24: ["تذكير الفندق قبلها بيوم", "قبل 24 س"], h4: ["ميعاد دخول الفندق (قبلها بـ 4 ساعات)", "الدخول"], arr: ["الخروج من الفندق", "الخروج"] },
+  embassy: { d24: ["تذكير ميعاد السفارة قبلها بيوم", "قبل 24 س"], h4: ["ميعاد السفارة بعد 4 ساعات", "قبل 4 س"], arr: ["متابعة بعد الميعاد", "متابعة"] }
+};
 function schedule(t) {
-  const arr = t.arrUtc || t.depUtc + 3 * 3600e3;
-  return {
-    d24: { due: t.depUtc - 24 * 3600e3, until: t.depUtc - 4 * 3600e3 },
-    h4: { due: t.depUtc - 4 * 3600e3, until: t.depUtc },
-    arr: { due: arr + 3600e3, until: arr + 30 * 3600e3 }
-  };
+  const k = kindOf(t), start = t.depUtc, end = t.arrUtc || (k === "flight" ? start + 3 * H : start + H);
+  const third = k === "hotel" ? end - H : k === "embassy" ? end + H : end;
+  return { d24: { due: start - 24 * H, until: start - 4 * H }, h4: { due: start - 4 * H, until: start }, arr: { due: third, until: third + 30 * H } };
 }
-function msgText(t, k) {
-  const first = (t.name || "").trim().split(/\s+/)[0] || "";
-  const um = t.type === "umrah";
-  const dep = fmtLocal(t.depDate, t.depTime);
-  const route = t.from + " ← " + t.to;
-  const fl = [t.airline, t.flightNo].filter(Boolean).join(" ");
-  if (k === "d24") return `أهلاً ${first} 👋\nمعاك النسيم ترافيل ✈️\nتذكير برحلتك بكره:\n\n✈️ ${route}${fl ? " (" + fl + ")" : ""}\n📅 ${dep.d}\n🕐 الإقلاع ${dep.t} بتوقيت ${t.from}${t.pnr ? "\n📌 رقم الحجز: " + t.pnr : ""}\n\nبرجاء التأكد من:\n✅ جواز السفر ساري\n✅ ${um ? "تأشيرة العمرة وتصريح نُسُك" : "التأشيرة"} وصورة التذكرة معاك\n⏳ يُفضّل الوصول للمطار قبل الإقلاع بـ 3 ساعات\n\nرحلة سعيدة 🌷\nالنسيم ترافيل - سافرها صح\nللتواصل: ${COMPANY_WA}`;
-  if (k === "h4") return `أهلاً ${first} ✈️\nفاضل حوالي 4 ساعات على إقلاع رحلتك${fl ? " " + fl : ""} ⏰\nده وقت التوجّه للمطار والكاونتر.\n\n✅ الباسبور والتذكرة${um ? " وتصريح نُسُك" : ""} في إيدك\n✅ الشنطة في الوزن المسموح\n\nلو احتجت أي حاجة في المطار كلمنا فوراً: ${COMPANY_WA}\nتوصل بالسلامة 🌷\nالنسيم ترافيل`;
-  return `حمد الله على السلامة يا ${first} 🌷\nنتمنى تكون وصلت ${t.to} بالسلامة ورحلتك كانت مريحة ✈️\n${um ? "تقبّل الله منك صالح الأعمال، ومتنساناش من دعائك 🤲\n" : ""}\nلو محتاج أي خدمة وأنت هناك إحنا معاك: ${COMPANY_WA}\nويسعدنا جداً تقييمك لخدمتنا على صفحتنا 💙\nالنسيم ترافيل - سافرها صح`;
-}
-const waLink = (t, k) => "https://wa.me/" + t.phone + "?text=" + encodeURIComponent(msgText(t, k));
 function stateOf(t, k, now) {
   const sc = schedule(t)[k];
   if (t.sent && t.sent[k]) return "sent";
@@ -173,69 +165,132 @@ function stateOf(t, k, now) {
   if (now <= sc.until) return "due";
   return "late";
 }
+const titleOf = t => kindOf(t) === "flight" ? `${t.from} ← ${t.to}${t.flightNo ? " · " + t.flightNo : ""}` : `${t.place || KIND_NAME[kindOf(t)]}${t.city ? " · " + t.city : ""}`;
+function msgText(t, k) {
+  const first = (t.name || "").trim().split(/\s+/)[0] || "";
+  const um = t.type === "umrah", kind = kindOf(t);
+  const st = fmtLocal(t.depDate, t.depTime), en = fmtLocal(t.arrDate, t.arrTime);
+  const sign = `النسيم ترافيل - سافرها صح\nللتواصل: ${COMPANY_WA}`;
+  if (kind === "hotel") {
+    if (k === "d24") return `أهلاً ${first} 👋\nمعاك النسيم ترافيل 🏨\nتذكير بحجزك بكره:\n\n🏨 ${t.place || "الفندق"}${t.city ? " - " + t.city : ""}\n📅 الدخول: ${st.d}${st.t ? " من الساعة " + st.t : ""}\n📅 الخروج: ${en.d}${en.t ? " الساعة " + en.t : ""}${t.ref ? "\n📌 رقم الحجز: " + t.ref : ""}\n\nخلي معاك الباسبور وتأكيد الحجز.\nإقامة سعيدة 🌷\n${sign}`;
+    if (k === "h4") return `أهلاً ${first} 🏨\nفاضل حوالي 4 ساعات على ميعاد دخولك فندق ${t.place || ""} ⏰\n${t.ref ? "📌 رقم الحجز: " + t.ref + "\n" : ""}لو حصلت أي مشكلة في الاستلام كلمنا فوراً: ${COMPANY_WA}\nالنسيم ترافيل`;
+    return `أهلاً ${first} 🌷\nتذكير: ميعاد تسجيل الخروج من فندق ${t.place || ""} النهارده${en.t ? " الساعة " + en.t : ""}.\nنتمنى تكون إقامتك كانت مريحة 🙏\nلو محتاج تمديد أو مواصلات للمطار إحنا معاك: ${COMPANY_WA}\nويسعدنا تقييمك لخدمتنا 💙\n${sign}`;
+  }
+  if (kind === "embassy") {
+    if (k === "d24") return `أهلاً ${first} 👋\nمعاك النسيم ترافيل\nتذكير بميعادك بكره:\n\n🏛️ ${t.place || "السفارة"}${t.city ? " - " + t.city : ""}\n📅 ${st.d}\n🕐 الساعة ${st.t}${t.ref ? "\n📌 رقم الميعاد: " + t.ref : ""}\n\nجهّز معاك:\n✅ الباسبور الأصلي\n✅ كل الأوراق والصور المطلوبة\n✅ تأكيد الميعاد مطبوع\n⏳ يُفضّل توصل قبل الميعاد بنص ساعة\n\nربنا يوفقك 🌷\n${sign}`;
+    if (k === "h4") return `أهلاً ${first} 🏛️\nفاضل حوالي 4 ساعات على ميعادك في ${t.place || "السفارة"} (الساعة ${st.t}) ⏰\nاتأكد إن الباسبور والأوراق معاك.\nلو احتجت أي حاجة كلمنا: ${COMPANY_WA}\nالنسيم ترافيل`;
+    return `أهلاً ${first} 🌷\nنتمنى يكون ميعادك في ${t.place || "السفارة"} عدّى على خير 🙏\nلو فيه أي أوراق ناقصة أو محتاج متابعة إحنا معاك: ${COMPANY_WA}\n${sign}`;
+  }
+  const route = t.from + " ← " + t.to;
+  const fl = [t.airline, t.flightNo].filter(Boolean).join(" ");
+  if (k === "d24") return `أهلاً ${first} 👋\nمعاك النسيم ترافيل ✈️\nتذكير برحلتك بكره:\n\n✈️ ${route}${fl ? " (" + fl + ")" : ""}\n📅 ${st.d}\n🕐 الإقلاع ${st.t} بتوقيت ${t.from}${t.ref || t.pnr ? "\n📌 رقم الحجز: " + (t.ref || t.pnr) : ""}\n\nبرجاء التأكد من:\n✅ جواز السفر ساري\n✅ ${um ? "تأشيرة العمرة وتصريح نُسُك" : "التأشيرة"} وصورة التذكرة معاك\n⏳ يُفضّل الوصول للمطار قبل الإقلاع بـ 3 ساعات\n\nرحلة سعيدة 🌷\n${sign}`;
+  if (k === "h4") return `أهلاً ${first} ✈️\nفاضل حوالي 4 ساعات على إقلاع رحلتك${fl ? " " + fl : ""} ⏰\nده وقت التوجّه للمطار والكاونتر.\n\n✅ الباسبور والتذكرة${um ? " وتصريح نُسُك" : ""} في إيدك\n✅ الشنطة في الوزن المسموح\n\nلو احتجت أي حاجة في المطار كلمنا فوراً: ${COMPANY_WA}\nتوصل بالسلامة 🌷\nالنسيم ترافيل`;
+  return `حمد الله على السلامة يا ${first} 🌷\nنتمنى تكون وصلت ${t.to} بالسلامة ورحلتك كانت مريحة ✈️\n${um ? "تقبّل الله منك صالح الأعمال، ومتنساناش من دعائك 🤲\n" : ""}\nلو محتاج أي خدمة وأنت هناك إحنا معاك: ${COMPANY_WA}\nويسعدنا جداً تقييمك لخدمتنا على صفحتنا 💙\n${sign}`;
+}
+const waLink = (t, k) => "https://wa.me/" + t.phone + "?text=" + encodeURIComponent(msgText(t, k));
 
 /* ---------------- data ---------------- */
-let trips = [], loaded = false;
+let trips = [], loaded = false, team = {}, scope = "me";
 function startData() {
   if (unsubTrips) unsubTrips();
-  const q = F.query(F.collection(db, "trips"), F.where("depUtc", ">", Date.now() - 10 * 86400e3), F.orderBy("depUtc"));
+  const since = Date.now() - 10 * 86400e3;
+  const q = isAdmin
+    ? F.query(F.collection(db, "trips"), F.where("depUtc", ">", since), F.orderBy("depUtc"))
+    : F.query(F.collection(db, "trips"), F.where("createdBy", "==", myEmail), F.where("depUtc", ">", since), F.orderBy("depUtc"));
   unsubTrips = F.onSnapshot(q, snap => {
     trips = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
-    loaded = true; show("v-app"); render(); afterEnter();
+    loaded = true; show("v-app"); afterEnter(); render();
   }, err => {
+    console.warn(err);
     if (err.code === "permission-denied") show("v-wait");
-    else { show("v-app"); $("#queue").innerHTML = `<div class="empty">مش قادرين نحمّل الرحلات دلوقتي. اتأكد من الإنترنت.</div>`; }
+    else { show("v-app"); $("#queue").innerHTML = `<div class="empty">مش قادرين نحمّل البيانات دلوقتي. اتأكد من الإنترنت.</div>`; }
   });
 }
 let entered = false;
 function afterEnter() {
   if (entered) return; entered = true;
-  $("#team-box").hidden = !isOwner;
-  if (isOwner) watchTeam();
+  $("#team-box").hidden = !isAdmin;
+  if (isAdmin) watchTeam();
+  const startTab = (location.hash || "#queue").slice(1);
+  setTab(["queue", "add", "trips", "settings"].includes(startTab) ? startTab : "queue");
   setupPushUi();
   setupInstallUi();
 }
+const nameOf = em => (team[em] && team[em].name) || (em === ADMIN ? "أنا" : String(em || "").split("@")[0]);
+function fillScope() {
+  const sel = $("#scope"), cur = scope;
+  const emails = [...new Set([...Object.keys(team), ...trips.map(t => t.createdBy).filter(Boolean)])].filter(e => e !== ADMIN).sort();
+  sel.innerHTML = `<option value="me">رسايلي وحجوزاتي أنا</option><option value="all">كل التيم</option>` + emails.map(e => `<option value="${esc(e)}">${esc(nameOf(e))}</option>`).join("");
+  sel.value = [...sel.options].some(o => o.value === cur) ? cur : "me";
+}
+$("#scope").addEventListener("change", e => { scope = e.target.value; render(); });
+const inScope = t => !isAdmin || scope === "all" ? true : scope === "me" ? (t.createdBy || ADMIN) === myEmail : t.createdBy === scope;
 
-/* ---------------- form ---------------- */
-function segRow(s = {}) {
-  const el = document.createElement("div"); el.className = "seg";
-  const tzSel = v => TZ_OPTS.map(([z, n]) => `<option value="${z}"${z === v ? " selected" : ""}>${n}</option>`).join("");
-  el.innerHTML = `<div class="row" style="justify-content:space-between"><strong class="small">رحلة</strong><button type="button" class="btn ghost small rm" style="min-height:36px;padding:4px 10px">حذف</button></div>
-  <div class="fields">
-    <label>من (كود المطار)<input class="mono s-from" maxlength="3" autocapitalize="characters" value="${esc(s.from || "")}" placeholder="CAI"></label>
-    <label>إلى<input class="mono s-to" maxlength="3" autocapitalize="characters" value="${esc(s.to || "")}" placeholder="JED"></label>
-    <label>شركة الطيران<input class="s-air" value="${esc(s.airline || "")}"></label>
-    <label>رقم الرحلة<input class="mono s-fl" autocapitalize="characters" value="${esc(s.flightNo || "")}" placeholder="MS 671"></label>
-    <label>تاريخ الإقلاع<input type="date" class="s-dd" value="${esc(s.depDate || "")}"></label>
-    <label>ساعة الإقلاع (محلي)<input type="time" class="s-dt" value="${esc(s.depTime || "")}"></label>
-    <label>تاريخ الوصول<input type="date" class="s-ad" value="${esc(s.arrDate || "")}"></label>
-    <label>ساعة الوصول (محلي)<input type="time" class="s-at" value="${esc(s.arrTime || "")}"></label>
-    <label>توقيت بلد الإقلاع<select class="s-ftz">${tzSel(s.fromTz || CAIRO)}</select></label>
-    <label>توقيت بلد الوصول<select class="s-ttz">${tzSel(s.toTz || "Asia/Riyadh")}</select></label>
-  </div>`;
-  el.querySelector(".rm").onclick = () => { el.remove(); if (!$("#segs").children.length) $("#segs").appendChild(segRow()); };
-  const sync = (inp, sel) => inp.addEventListener("input", () => { const z = AIRPORT_TZ[inp.value.trim().toUpperCase()]; if (z) sel.value = z; });
-  sync(el.querySelector(".s-from"), el.querySelector(".s-ftz"));
-  sync(el.querySelector(".s-to"), el.querySelector(".s-ttz"));
-  const dd = el.querySelector(".s-dd"), ad = el.querySelector(".s-ad");
-  dd.addEventListener("change", () => { if (!ad.value) ad.value = dd.value; });
+/* ---------------- add form: items ---------------- */
+const tzSel = (v, extra) => { const opts = TZ_OPTS.slice(); if (v && !opts.some(o => o[0] === v) && validTz(v)) opts.push([v, v]); return opts.map(([z, n]) => `<option value="${z}"${z === v ? " selected" : ""}>${n}</option>`).join(""); };
+function itemRow(it = {}) {
+  const el = document.createElement("div"); el.className = "seg"; el.dataset.kind = it.kind || "flight";
+  const draw = () => {
+    const k = el.dataset.kind, v = it;
+    const head = `<div class="row" style="justify-content:space-between"><select class="i-kind" style="width:auto">${["flight", "hotel", "embassy"].map(x => `<option value="${x}"${x === k ? " selected" : ""}>${{ flight: "✈️ طيران", hotel: "🏨 فندق", embassy: "🏛️ سفارة" }[x]}</option>`).join("")}</select><button type="button" class="btn ghost small rm" style="min-height:36px;padding:4px 10px">حذف</button></div>`;
+    let body = "";
+    if (k === "flight") body = `<div class="fields">
+      <label>من (كود المطار)<input class="mono i-from" maxlength="3" autocapitalize="characters" value="${esc(v.from || "")}" placeholder="CAI"></label>
+      <label>إلى<input class="mono i-to" maxlength="3" autocapitalize="characters" value="${esc(v.to || "")}" placeholder="JED"></label>
+      <label>شركة الطيران<input class="i-air" value="${esc(v.airline || "")}"></label>
+      <label>رقم الرحلة<input class="mono i-fl" autocapitalize="characters" value="${esc(v.flightNo || "")}" placeholder="MS 671"></label>
+      <label>تاريخ الإقلاع<input type="date" class="i-sd" value="${esc(v.depDate || "")}"></label>
+      <label>ساعة الإقلاع (محلي)<input type="time" class="i-st" value="${esc(v.depTime || "")}"></label>
+      <label>تاريخ الوصول<input type="date" class="i-ed" value="${esc(v.arrDate || "")}"></label>
+      <label>ساعة الوصول (محلي)<input type="time" class="i-et" value="${esc(v.arrTime || "")}"></label>
+      <label>توقيت بلد الإقلاع<select class="i-ftz">${tzSel(v.fromTz || AIRPORT_TZ[v.from] || CAIRO)}</select></label>
+      <label>توقيت بلد الوصول<select class="i-ttz">${tzSel(v.toTz || AIRPORT_TZ[v.to] || "Asia/Riyadh")}</select></label>
+      <label>رقم الحجز (PNR)<input class="mono i-ref" value="${esc(v.ref || "")}"></label></div>`;
+    else if (k === "hotel") body = `<div class="fields">
+      <label>اسم الفندق<input class="i-place" value="${esc(v.place || "")}"></label>
+      <label>المدينة<input class="i-city" value="${esc(v.city || "")}"></label>
+      <label>تاريخ الدخول<input type="date" class="i-sd" value="${esc(v.depDate || "")}"></label>
+      <label>ساعة الدخول<input type="time" class="i-st" value="${esc(v.depTime || "14:00")}"></label>
+      <label>تاريخ الخروج<input type="date" class="i-ed" value="${esc(v.arrDate || "")}"></label>
+      <label>ساعة الخروج<input type="time" class="i-et" value="${esc(v.arrTime || "12:00")}"></label>
+      <label>توقيت البلد<select class="i-tz">${tzSel(v.fromTz || "Asia/Riyadh")}</select></label>
+      <label>رقم الحجز<input class="mono i-ref" value="${esc(v.ref || "")}"></label></div>`;
+    else body = `<div class="fields">
+      <label>السفارة / مركز التأشيرات<input class="i-place" value="${esc(v.place || "")}"></label>
+      <label>المدينة<input class="i-city" value="${esc(v.city || "")}"></label>
+      <label>تاريخ الميعاد<input type="date" class="i-sd" value="${esc(v.depDate || "")}"></label>
+      <label>ساعة الميعاد<input type="time" class="i-st" value="${esc(v.depTime || "")}"></label>
+      <label>توقيت البلد<select class="i-tz">${tzSel(v.fromTz || CAIRO)}</select></label>
+      <label>رقم الميعاد<input class="mono i-ref" value="${esc(v.ref || "")}"></label></div>`;
+    el.innerHTML = head + body;
+    el.querySelector(".i-kind").onchange = e => { it = Object.assign(readItem(el), { kind: e.target.value }); el.dataset.kind = e.target.value; draw(); };
+    el.querySelector(".rm").onclick = () => el.remove();
+    const sync = (inp, sel) => inp && sel && inp.addEventListener("input", () => { const z = AIRPORT_TZ[inp.value.trim().toUpperCase()]; if (z) sel.value = z; });
+    sync(el.querySelector(".i-from"), el.querySelector(".i-ftz"));
+    sync(el.querySelector(".i-to"), el.querySelector(".i-ttz"));
+    const sd = el.querySelector(".i-sd"), ed = el.querySelector(".i-ed");
+    if (sd && ed && k === "flight") sd.addEventListener("change", () => { if (!ed.value) ed.value = sd.value; });
+  };
+  draw();
   return el;
 }
-function readSegs() {
-  return [...document.querySelectorAll("#segs .seg")].map(el => {
-    const v = c => el.querySelector(c).value.trim();
-    return { from: v(".s-from").toUpperCase(), to: v(".s-to").toUpperCase(), airline: v(".s-air"), flightNo: v(".s-fl").toUpperCase(), depDate: v(".s-dd"), depTime: v(".s-dt"), arrDate: v(".s-ad") || v(".s-dd"), arrTime: v(".s-at"), fromTz: v(".s-ftz"), toTz: v(".s-ttz") };
-  });
+function readItem(el) {
+  const v = c => { const x = el.querySelector(c); return x ? x.value.trim() : ""; };
+  const kind = el.dataset.kind;
+  if (kind === "flight") return { kind, from: v(".i-from").toUpperCase(), to: v(".i-to").toUpperCase(), airline: v(".i-air"), flightNo: v(".i-fl").toUpperCase(), depDate: v(".i-sd"), depTime: v(".i-st"), arrDate: v(".i-ed") || v(".i-sd"), arrTime: v(".i-et"), fromTz: v(".i-ftz"), toTz: v(".i-ttz"), ref: v(".i-ref").toUpperCase() };
+  if (kind === "hotel") return { kind, place: v(".i-place"), city: v(".i-city"), depDate: v(".i-sd"), depTime: v(".i-st") || "14:00", arrDate: v(".i-ed"), arrTime: v(".i-et") || "12:00", fromTz: v(".i-tz"), toTz: v(".i-tz"), ref: v(".i-ref") };
+  return { kind, place: v(".i-place"), city: v(".i-city"), depDate: v(".i-sd"), depTime: v(".i-st"), arrDate: v(".i-sd"), arrTime: "", fromTz: v(".i-tz"), toTz: v(".i-tz"), ref: v(".i-ref") };
 }
-function resetSegs() { $("#segs").innerHTML = ""; $("#segs").appendChild(segRow()); }
-resetSegs();
-$("#f-manual").onclick = () => { $("#f-auto").hidden = false; $("#f-name").focus(); };
-$("#f-addseg").onclick = () => { const cur = readSegs(), last = cur[cur.length - 1] || {}; $("#segs").appendChild(segRow({ from: last.to, to: last.from, fromTz: last.toTz, toTz: last.fromTz })); };
+const readItems = () => [...document.querySelectorAll("#items .seg")].map(readItem);
+document.querySelectorAll("[data-additem]").forEach(b => b.onclick = () => {
+  const cur = readItems().filter(x => x.kind === "flight"), last = cur[cur.length - 1];
+  const seed = b.dataset.additem === "flight" && last ? { kind: "flight", from: last.to, to: last.from, fromTz: last.toTz, toTz: last.fromTz } : { kind: b.dataset.additem };
+  $("#items").appendChild(itemRow(seed));
+});
 
-let ticketData = null;
-function loadImage(file) {
-  return new Promise((res, rej) => { const url = URL.createObjectURL(file); const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = url; });
-}
+/* ---------------- images: pick several, read all ---------------- */
+let images = []; // {id, data}
+function loadImage(file) { return new Promise((res, rej) => { const url = URL.createObjectURL(file); const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = url; }); }
 async function compress(file) {
   const im = await loadImage(file);
   let max = 1400, q = 0.72, out = "";
@@ -249,166 +304,211 @@ async function compress(file) {
   }
   return out.length < 1000000 ? out : null;
 }
+function drawThumbs() {
+  $("#thumbs").innerHTML = images.map((im, i) => `<figure><img src="${im.data}" alt="صورة ${i + 1}"><button type="button" data-rmimg="${i}" aria-label="شيل الصورة">×</button></figure>`).join("");
+  $("#pick-t").textContent = images.length ? `${images.length} ${images.length === 1 ? "صورة" : "صور"} ✓ — اضغط لإضافة صور تانية` : "صوّر أو اختار الاسكرينات";
+}
+$("#thumbs").addEventListener("click", e => { const b = e.target.closest("[data-rmimg]"); if (!b) return; images.splice(+b.dataset.rmimg, 1); drawThumbs(); });
 $("#f-file").addEventListener("change", async e => {
-  const f = e.target.files[0]; if (!f) return;
-  $("#pick-t").textContent = "بنجهّز الصورة…";
-  try {
-    ticketData = await compress(f);
-    if (!ticketData) throw 0;
-    $("#f-prev").src = ticketData; $("#f-prev").hidden = false;
-    $("#pick-t").textContent = "الصورة اتحطت ✓"; $("#pick-s").textContent = "اضغط تاني لو عايز تغيّرها";
-  } catch (_) { ticketData = null; $("#pick-t").textContent = "الصورة دي ماتفتحتش، جرّب صورة تانية"; return; }
-  readTicket();
+  const files = [...e.target.files]; e.target.value = ""; if (!files.length) return;
+  const st = $("#f-readst"); st.className = "status"; st.textContent = "بنجهّز الصور…";
+  const fresh = [];
+  for (const f of files) { try { const d = await compress(f); if (d) fresh.push({ data: d }); } catch (_) {} }
+  if (!fresh.length) { st.className = "status err"; st.textContent = "الصور دي ماتفتحتش، جرّب تاني."; return; }
+  images.push(...fresh); drawThumbs();
+  readImages(fresh);
 });
 
-/* ---------------- read the ticket automatically (Gemini via Firebase AI Logic) ---------------- */
 let readSeq = 0;
-async function readTicket() {
+async function readImages(list) {
   const st = $("#f-readst"), my = ++readSeq;
-  st.className = "status"; st.textContent = "بنقرأ بيانات التذكرة أوتوماتيك… استنى ثواني";
-  $("#f-auto").hidden = true;
+  st.className = "status"; st.textContent = `بنقرأ ${list.length === 1 ? "الصورة" : list.length + " صور"} أوتوماتيك… استنى ثواني`;
+  $("#f-save").disabled = true;
   try {
     const today = new Date().toISOString().slice(0, 10);
-    const prompt = `This image is a screenshot of an airline e-ticket, booking confirmation or itinerary for a customer of an Egyptian travel agency.
-Extract exactly what is printed. Return ONLY a JSON object of this shape:
-{"passengerName": string, "otherPassengers": [string], "pnr": string, "isUmrah": boolean,
- "segments": [{"airline": string, "flightNo": string, "from": "3-letter IATA code", "to": "3-letter IATA code",
-   "depDate": "YYYY-MM-DD", "depTime": "HH:MM 24h local time at the departure airport", "arrDate": "YYYY-MM-DD", "arrTime": "HH:MM 24h local time at the arrival airport"}]}
-Rules: include every flight segment in travel order (outbound, connections and return). Convert city or airport names to IATA codes (Cairo=CAI, Jeddah=JED, Madinah=MED, Riyadh=RUH, Sharjah=SHJ, Dubai=DXB, Borg El Arab=HBE, Sphinx=SPX, Tashkent=TAS).
-"isUmrah" true only if the ticket mentions Umrah/عمرة.
-Use "" for anything not visible and never guess. If the year is missing, use the next future date after ${today}.`;
-    const b64 = ticketData.split(",")[1];
-    const res = await generateWithFallback([prompt, { inlineData: { data: b64, mimeType: "image/jpeg" } }]);
+    const prompt = `These ${list.length} image(s) are screenshots for ONE customer of an Egyptian travel agency. They can be airline e-tickets/itineraries, hotel booking confirmations, and embassy / visa-center appointment confirmations (VFS, TLS, BLS, etc.), in English or Arabic.
+Extract every booking exactly as printed. Return ONLY one JSON object:
+{"customerName": string, "otherNames": [string], "isUmrah": boolean,
+ "items": [
+  {"kind":"flight","airline":string,"flightNo":string,"from":"IATA","to":"IATA","fromTz":"IANA timezone of departure airport","toTz":"IANA timezone of arrival airport","depDate":"YYYY-MM-DD","depTime":"HH:MM","arrDate":"YYYY-MM-DD","arrTime":"HH:MM","ref":"PNR / booking reference"},
+  {"kind":"hotel","place":"hotel name","city":string,"tz":"IANA timezone","checkInDate":"YYYY-MM-DD","checkInTime":"HH:MM","checkOutDate":"YYYY-MM-DD","checkOutTime":"HH:MM","ref":"confirmation number"},
+  {"kind":"embassy","place":"embassy / visa center name","city":string,"tz":"IANA timezone","date":"YYYY-MM-DD","time":"HH:MM","ref":"appointment / reference number"}
+ ]}
+Rules: one item per flight segment (outbound, connections, return) in travel order, one per hotel stay, one per appointment. Times are 24h LOCAL times as printed. Convert city/airport names to IATA codes (Cairo=CAI, Jeddah=JED, Madinah=MED, Riyadh=RUH, Sharjah=SHJ, Dubai=DXB, Borg El Arab=HBE, Sphinx=SPX).
+Hotel check-in/out times: use the printed ones, else "" (we default to 14:00 / 12:00). "isUmrah" true only if Umrah/عمرة is mentioned. Never guess: use "" when not visible. If a year is missing use the next future date after ${today}. Don't repeat the same booking twice if it appears in two images.`;
+    const parts = [prompt, ...list.map(im => ({ inlineData: { data: im.data.split(",")[1], mimeType: "image/jpeg" } }))];
+    const res = await generateWithFallback(parts);
     if (my !== readSeq) return;
-    let txt = res.response.text().trim().replace(/^```(?:json)?/i, "").replace(/```$/, "");
-    const r = JSON.parse(txt);
-    const segs = (Array.isArray(r.segments) ? r.segments : []).filter(s => s && (s.from || s.to || s.depDate));
-    if (r.passengerName) $("#f-name").value = r.passengerName;
-    if (r.pnr) $("#f-pnr").value = String(r.pnr).toUpperCase();
+    const r = JSON.parse(res.response.text().trim().replace(/^```(?:json)?/i, "").replace(/```$/, ""));
+    if (r.customerName && !$("#f-name").value) $("#f-name").value = r.customerName;
     if (r.isUmrah) $("#f-type").value = "umrah";
-    if (segs.length) {
-      $("#segs").innerHTML = "";
-      segs.forEach(s => {
-        const from = String(s.from || "").toUpperCase().slice(0, 3), to = String(s.to || "").toUpperCase().slice(0, 3);
-        $("#segs").appendChild(segRow({ ...s, from, to, flightNo: String(s.flightNo || "").toUpperCase(), arrDate: s.arrDate || s.depDate,
-          fromTz: AIRPORT_TZ[from] || CAIRO, toTz: AIRPORT_TZ[to] || "Asia/Riyadh" }));
-      });
-    }
-    const missing = segs.some(s => !s.depDate || !s.depTime || !s.from || !s.to) || !segs.length;
-    const others = (r.otherPassengers || []).filter(Boolean);
-    st.className = missing ? "status err" : "status good";
-    st.textContent = (missing ? "اتقرت جزئياً، كمّل الناقص تحت." : "اتقرت ✓ " + segs.length + (segs.length === 1 ? " رحلة" : " رحلات") + ". اكتب رقم واتساب العميل واحفظ.")
-      + (others.length ? ` (التذكرة فيها كمان: ${others.join("، ")})` : "");
-    $("#f-auto").hidden = false;
+    const got = (Array.isArray(r.items) ? r.items : []).map(x => {
+      if (x.kind === "hotel") return { kind: "hotel", place: x.place, city: x.city, depDate: x.checkInDate, depTime: x.checkInTime || "14:00", arrDate: x.checkOutDate, arrTime: x.checkOutTime || "12:00", fromTz: validTz(x.tz) ? x.tz : "", ref: x.ref };
+      if (x.kind === "embassy") return { kind: "embassy", place: x.place, city: x.city, depDate: x.date, depTime: x.time, fromTz: validTz(x.tz) ? x.tz : CAIRO, ref: x.ref };
+      const from = String(x.from || "").toUpperCase().slice(0, 3), to = String(x.to || "").toUpperCase().slice(0, 3);
+      return { kind: "flight", airline: x.airline, flightNo: String(x.flightNo || "").toUpperCase(), from, to, depDate: x.depDate, depTime: x.depTime, arrDate: x.arrDate || x.depDate, arrTime: x.arrTime,
+        fromTz: AIRPORT_TZ[from] || (validTz(x.fromTz) ? x.fromTz : CAIRO), toTz: AIRPORT_TZ[to] || (validTz(x.toTz) ? x.toTz : "Asia/Riyadh"), ref: String(x.ref || "").toUpperCase() };
+    }).filter(x => x.depDate || x.place || x.from);
+    // drop empty placeholder rows, then add what we read
+    document.querySelectorAll("#items .seg").forEach(el => { const v = readItem(el); if (!v.depDate && !v.place && !v.from) el.remove(); });
+    got.forEach(x => $("#items").appendChild(itemRow(x)));
+    const missing = got.some(x => !x.depDate || !x.depTime || (x.kind === "flight" && (!x.from || !x.to)));
+    const others = (r.otherNames || []).filter(Boolean);
+    const counts = ["flight", "hotel", "embassy"].map(k => [k, got.filter(x => x.kind === k).length]).filter(([, n]) => n).map(([k, n]) => `${n} ${KIND_NAME[k]}`).join("، ");
+    st.className = !got.length || missing ? "status err" : "status good";
+    st.textContent = (!got.length ? "مالقيناش حجوزات في الصور دي. جرّب صور أوضح أو ضيف بإيدك." : missing ? `اتقرا (${counts}) بس فيه بيانات ناقصة، كمّلها تحت.` : `اتقرا ✓ ${counts}. اكتب رقم واتساب العميل واحفظ.`)
+      + (others.length ? ` (فيه أسماء تانية: ${others.join("، ")})` : "");
     if (!$("#f-phone").value) setTimeout(() => $("#f-phone").focus(), 50);
   } catch (e) {
     if (my !== readSeq) return;
-    console.warn("read ticket", e);
-    st.className = "status err";
-    st.textContent = "ماقدرناش نقرأ التذكرة دي أوتوماتيك. جرّب اسكرين أوضح، أو اكتب البيانات بإيدك.";
-    $("#f-auto").hidden = false;
-  }
+    console.warn("read", e);
+    st.className = "status err"; st.textContent = "ماقدرناش نقرأ الصور دي أوتوماتيك. جرّب تاني أو ضيف البيانات بإيدك.";
+  } finally { if (my === readSeq) $("#f-save").disabled = false; }
 }
 
+/* ---------------- save ---------------- */
+function resetForm() {
+  $("#form").reset(); images = []; drawThumbs(); $("#items").innerHTML = ""; $("#f-readst").textContent = ""; readSeq++; $("#f-save").disabled = false;
+}
 $("#form").addEventListener("submit", async e => {
   e.preventDefault();
   const st = $("#f-st"); st.className = "status err";
   const name = $("#f-name").value.trim(), phone = normPhone($("#f-phone").value);
-  if (!name) { $("#f-auto").hidden = false; st.textContent = ticketData ? "استنى لحد ما التذكرة تتقري، أو اكتب اسم العميل." : "ارفع صورة التذكرة الأول."; return; }
+  const items = readItems();
+  if (!items.length) { st.textContent = images.length ? "استنى لحد ما الصور تتقري، أو ضيف حجز بإيدك." : "ارفع صور الحجوزات الأول، أو ضيف حجز بإيدك."; return; }
+  if (!name) { st.textContent = "اكتب اسم العميل."; return; }
   if (!phone) { st.textContent = "رقم الواتساب مش مظبوط. اكتبه زي 01012345678 أو بكود الدولة."; return; }
-  const segs = readSegs();
-  for (const s of segs) if (!s.from || !s.to || !s.depDate || !s.depTime) { $("#f-auto").hidden = false; st.textContent = "كل رحلة محتاجة: من، إلى، تاريخ وساعة الإقلاع."; return; }
+  for (const it of items) {
+    if (!it.depDate || !it.depTime) { st.textContent = "كل حجز محتاج تاريخ وساعة."; return; }
+    if (it.kind === "flight" && (!it.from || !it.to)) { st.textContent = "كل رحلة طيران محتاجة: من وإلى."; return; }
+    if (it.kind === "hotel" && !it.arrDate) { st.textContent = "الفندق محتاج تاريخ الخروج."; return; }
+  }
   const btn = $("#f-save"); btn.disabled = true; st.className = "status"; st.textContent = "بنحفظ…";
   try {
     const batch = F.writeBatch(db);
-    let ticketId = null;
-    if (ticketData) { const tr = F.doc(F.collection(db, "tickets")); ticketId = tr.id; batch.set(tr, { data: ticketData, createdAt: Date.now(), by: me.email || "" }); }
+    const ticketIds = images.slice(0, 8).map(im => { const r = F.doc(F.collection(db, "tickets")); batch.set(r, { data: im.data, createdAt: Date.now(), by: myEmail }); return r.id; });
     const group = Date.now().toString(36);
-    for (const s of segs) {
-      const depUtc = localToUtc(s.depDate, s.depTime, s.fromTz);
-      let arrUtc = s.arrTime ? localToUtc(s.arrDate, s.arrTime, s.toTz) : null;
-      if (arrUtc && arrUtc < depUtc) arrUtc += 24 * 3600e3;
+    for (const it of items) {
+      const depUtc = localToUtc(it.depDate, it.depTime, it.fromTz);
+      let arrUtc = it.kind === "embassy" ? depUtc + H : (it.arrTime || it.kind === "hotel") ? localToUtc(it.arrDate, it.arrTime || "12:00", it.toTz) : null;
+      if (it.kind === "flight" && arrUtc && arrUtc < depUtc) arrUtc += 24 * H;
       batch.set(F.doc(F.collection(db, "trips")), {
-        name, phone, type: $("#f-type").value, pnr: $("#f-pnr").value.trim().toUpperCase(),
-        from: s.from, to: s.to, fromTz: s.fromTz, toTz: s.toTz, airline: s.airline, flightNo: s.flightNo,
-        depDate: s.depDate, depTime: s.depTime, arrDate: s.arrDate, arrTime: s.arrTime, depUtc, arrUtc,
-        ticketId, group, createdAt: Date.now(), createdBy: (me.email || "").toLowerCase(), sent: {}, notified: {}
+        kind: it.kind, name, phone, type: $("#f-type").value, ref: it.ref || "", pnr: it.kind === "flight" ? (it.ref || "") : "",
+        from: it.from || "", to: it.to || "", airline: it.airline || "", flightNo: it.flightNo || "", place: it.place || "", city: it.city || "",
+        fromTz: it.fromTz || CAIRO, toTz: it.toTz || it.fromTz || CAIRO,
+        depDate: it.depDate, depTime: it.depTime, arrDate: it.arrDate || "", arrTime: it.arrTime || "", depUtc, arrUtc,
+        ticketIds, group, createdAt: Date.now(), createdBy: myEmail, sent: {}, notified: {}
       });
     }
     await batch.commit();
-    st.className = "status good"; st.textContent = "اتحفظ ✓ الرسايل هتظهر وهيوصلكم إشعار في معادها.";
-    $("#form").reset(); ticketData = null; $("#f-prev").hidden = true; $("#pick-t").textContent = "صوّر أو اختار اسكرين التذكرة"; $("#pick-s").textContent = "البيانات هتتقري منها أوتوماتيك"; resetSegs(); $("#f-auto").hidden = true; $("#f-readst").textContent = ""; readSeq++;
-    toast("اتحفظ ✓");
+    st.className = "status good"; st.textContent = `اتحفظ ✓ ${items.length} ${items.length === 1 ? "حجز" : "حجوزات"} واتجدولت رسايلهم.`;
+    resetForm(); toast("اتحفظ ✓");
   } catch (err) {
-    st.className = "status err"; st.textContent = err && err.code === "permission-denied" ? "معندكش صلاحية تضيف رحلات." : "الحفظ ماتمّش. اتأكد من الإنترنت وجرّب تاني.";
+    console.warn(err);
+    st.className = "status err"; st.textContent = err && err.code === "permission-denied" ? "معندكش صلاحية تضيف." : "الحفظ ماتمّش. اتأكد من الإنترنت وجرّب تاني.";
   } finally { btn.disabled = false; }
 });
 
-/* ---------------- render ---------------- */
+/* ---------------- actions ---------------- */
 async function markSent(id, k) {
-  try { await F.updateDoc(F.doc(db, "trips", id), { ["sent." + k]: { at: Date.now(), by: (me.email || "").toLowerCase() } }); toast("اتسجّلت إنها اتبعتت ✓"); }
+  try { await F.updateDoc(F.doc(db, "trips", id), { ["sent." + k]: { at: Date.now(), by: myEmail } }); toast("اتسجّلت إنها اتبعتت ✓"); }
   catch (_) { toast("ماتسجّلتش. جرّب تاني."); }
 }
 async function undoSent(id, k) { try { await F.updateDoc(F.doc(db, "trips", id), { ["sent." + k]: F.deleteField() }); } catch (_) {} }
 async function removeTrip(t) {
   try {
     const b = F.writeBatch(db); b.delete(F.doc(db, "trips", t.id));
-    if (t.ticketId && !trips.some(x => x.id !== t.id && x.ticketId === t.ticketId)) b.delete(F.doc(db, "tickets", t.ticketId));
-    await b.commit(); toast("اتحذفت");
+    const ids = t.ticketIds || (t.ticketId ? [t.ticketId] : []);
+    ids.forEach(id => { if (!trips.some(x => x.id !== t.id && (x.ticketIds || []).includes(id))) b.delete(F.doc(db, "tickets", id)); });
+    await b.commit(); toast("اتحذف");
   } catch (_) { toast("الحذف ماتمّش"); }
 }
-async function showTicket(btn, id) {
+async function applyChange(t) {
+  const c = t.check || {};
+  if (c.status === "cancelled") { try { await F.updateDoc(F.doc(db, "trips", t.id), { "check.resolved": true }); toast("اتسجّل. عدّل الحجز أو امسحه."); } catch (_) {} return; }
+  const depDate = c.depDate || t.depDate, depTime = c.depTime || t.depTime, arrDate = c.arrDate || t.arrDate, arrTime = c.arrTime || t.arrTime;
+  const depUtc = localToUtc(depDate, depTime, t.fromTz);
+  let arrUtc = arrTime ? localToUtc(arrDate || depDate, arrTime, t.toTz) : null;
+  if (arrUtc && arrUtc < depUtc) arrUtc += 24 * H;
+  try { await F.updateDoc(F.doc(db, "trips", t.id), { depDate, depTime, arrDate, arrTime, depUtc, arrUtc, "check.resolved": true, "check.appliedAt": Date.now(), notified: {} }); toast("المعاد اتعدّل والرسايل اتظبطت ✓"); }
+  catch (_) { toast("التعديل ماتمّش"); }
+}
+async function dismissChange(t) { try { await F.updateDoc(F.doc(db, "trips", t.id), { "check.resolved": true }); } catch (_) {} }
+async function showTickets(btn, ids) {
   const box = btn.parentElement.querySelector(".tk"); if (!box) return;
-  if (box.innerHTML) { box.innerHTML = ""; btn.textContent = "صورة التذكرة"; return; }
+  if (box.innerHTML) { box.innerHTML = ""; btn.textContent = "الصور"; return; }
   btn.textContent = "بنحمّل…";
-  try { const s = await F.getDoc(F.doc(db, "tickets", id)); box.innerHTML = s.exists() ? `<img class="ticket-img" alt="صورة التذكرة" src="${esc(s.data().data)}">` : `<div class="small muted">الصورة مش موجودة</div>`; btn.textContent = "إخفاء الصورة"; }
-  catch (_) { btn.textContent = "صورة التذكرة"; toast("الصورة ماتحمّلتش"); }
+  try {
+    const docs = await Promise.all(ids.map(id => F.getDoc(F.doc(db, "tickets", id))));
+    box.innerHTML = docs.filter(s => s.exists()).map(s => `<img class="ticket-img" alt="صورة الحجز" src="${esc(s.data().data)}" style="margin-top:6px">`).join("") || `<div class="small muted">الصور مش موجودة</div>`;
+    btn.textContent = "إخفاء الصور";
+  } catch (_) { btn.textContent = "الصور"; toast("الصور ماتحمّلتش"); }
 }
 
+/* ---------------- render ---------------- */
 function render() {
   const now = Date.now();
   $("#now").textContent = "آخر تحديث " + fmtTime(now) + " (توقيت القاهرة)";
   if (!loaded) return;
+  if (isAdmin) fillScope();
+  const view = trips.filter(inScope);
+  const mine = trips.filter(t => (t.createdBy || ADMIN) === myEmail);
   const items = [];
-  trips.forEach(t => KINDS.forEach(k => { const s = stateOf(t, k.key, now); if (s === "due" || (s === "late" && now - schedule(t)[k.key].until < 48 * 3600e3)) items.push({ t, k, s, due: schedule(t)[k.key].due }); }));
+  view.forEach(t => KEYS.forEach(k => { const s = stateOf(t, k, now); if (s === "due" || (s === "late" && now - schedule(t)[k].until < 48 * H)) items.push({ t, k, s, due: schedule(t)[k].due }); }));
   items.sort((a, b) => a.due - b.due);
-  const dueN = items.filter(i => i.s === "due").length, lateN = items.filter(i => i.s === "late").length;
-  const upN = trips.filter(t => t.depUtc > now).length;
-  $("#stats").innerHTML = `<span class="chip">${upN} رحلة جاية</span>`;
-  const badge = $("#nav-badge"); badge.hidden = !dueN; badge.textContent = dueN;
-  document.title = dueN ? `(${dueN}) رحلات النسيم` : "رحلات النسيم";
-  try { if (navigator.setAppBadge) dueN ? navigator.setAppBadge(dueN) : navigator.clearAppBadge(); } catch (_) {}
+  const myDue = mine.reduce((n, t) => n + KEYS.filter(k => stateOf(t, k, now) === "due").length, 0);
+  $("#stats").innerHTML = `<span class="chip">${view.filter(t => t.depUtc > now).length} حجز جاي</span>`;
+  const badge = $("#nav-badge"); badge.hidden = !myDue; badge.textContent = myDue;
+  document.title = myDue ? `(${myDue}) رحلات النسيم` : "رحلات النسيم";
+  try { if (navigator.setAppBadge) myDue ? navigator.setAppBadge(myDue) : navigator.clearAppBadge(); } catch (_) {}
+
+  // schedule-change alerts from the 24h flight check
+  const changes = view.filter(t => t.check && t.check.changed && !t.check.resolved && t.depUtc > now - 6 * H);
+  $("#changes").hidden = !changes.length;
+  $("#changes").innerHTML = changes.map(t => { const c = t.check; return `<div class="change">
+      <strong>⚠️ ${esc(t.name)} · ${esc(t.flightNo)} ${esc(t.from)} ← ${esc(t.to)}</strong>
+      <div class="small">${c.status === "cancelled" ? "الرحلة ظاهرة إنها <b>اتلغت</b>." : `المعاد في الحجز: ${esc(t.depDate)} ${esc(t.depTime)} — المعاد الجديد: <b>${esc(c.depDate)} ${esc(c.depTime)}</b>${c.arrTime ? ` (وصول ${esc(c.arrDate)} ${esc(c.arrTime)})` : ""}`}</div>
+      ${c.note ? `<div class="small">${esc(c.note)}</div>` : ""}
+      ${(c.sources || []).length ? `<div class="small">المصدر: ${(c.sources || []).map((u, i) => `<a href="${esc(u)}" target="_blank" rel="noopener">رابط ${i + 1}</a>`).join(" · ")}</div>` : ""}
+      <div class="small muted">اتأكد من موقع شركة الطيران قبل ما تعتمد.${isAdmin && t.createdBy !== myEmail ? " · " + esc(nameOf(t.createdBy)) : ""}</div>
+      <div class="row"><button class="btn brand" data-apply="${t.id}">${c.status === "cancelled" ? "تمام، شفتها" : "اعتمد المعاد الجديد"}</button><button class="btn ghost" data-dismiss="${t.id}">تجاهل</button></div>
+    </div>`; }).join("");
 
   $("#queue").innerHTML = items.length ? items.map(({ t, k, s, due }) => `
     <article class="msg ${s === "late" ? "late" : ""}">
-      <div class="msg-top"><span class="msg-who">${esc(t.name)}</span><span class="msg-kind">${k.label}</span></div>
-      <div class="small muted"><span class="mono">+${esc(t.phone)}</span> · ${esc(t.from)} ← ${esc(t.to)} · ${esc([t.airline, t.flightNo].filter(Boolean).join(" "))}</div>
-      <div class="small muted">إقلاع ${fmtFull(t.depUtc)} · ${s === "late" ? "<b style='color:var(--late)'>فات معادها</b>" : "معادها " + rel(due - now)}</div>
-      <details><summary>نص الرسالة</summary><div class="msg-text">${esc(msgText(t, k.key))}</div></details>
-      <div class="row"><a class="btn wa" href="${waLink(t, k.key)}" target="_blank" rel="noopener">افتح واتساب وابعت</a><button class="btn" data-sent="${t.id}" data-k="${k.key}">اتبعتت ✓</button></div>
+      <div class="msg-top"><span class="msg-who">${esc(t.name)} <span class="kind">${KIND_NAME[kindOf(t)]}</span></span><span class="msg-kind">${LABELS[kindOf(t)][k][0]}</span></div>
+      <div class="small muted"><span class="mono">+${esc(t.phone)}</span> · ${esc(titleOf(t))}${isAdmin && scope !== "me" ? " · " + esc(nameOf(t.createdBy)) : ""}</div>
+      <div class="small muted">${kindOf(t) === "flight" ? "إقلاع" : kindOf(t) === "hotel" ? "دخول" : "الميعاد"} ${fmtFull(t.depUtc)} · ${s === "late" ? "<b style='color:var(--late)'>فات معادها</b>" : "معادها " + rel(due - now)}</div>
+      <details><summary>نص الرسالة</summary><div class="msg-text">${esc(msgText(t, k))}</div></details>
+      <div class="row"><a class="btn wa" href="${waLink(t, k)}" target="_blank" rel="noopener">افتح واتساب وابعت</a><button class="btn" data-sent="${t.id}" data-k="${k}">اتبعتت ✓</button></div>
     </article>`).join("") : `<div class="empty">مفيش رسايل مطلوبة دلوقتي ✓<br>أول ما ييجي معاد أي رسالة هيوصلك إشعار وهتظهر هنا بزرار واتساب جاهز.</div>`;
 
   const showPast = $("#showPast").checked, q = $("#search").value.trim().toLowerCase();
-  const list = trips.filter(t => (showPast || (t.arrUtc || t.depUtc) + 30 * 3600e3 > now) &&
-    (!q || [t.name, t.phone, t.pnr, t.flightNo].some(v => String(v || "").toLowerCase().includes(q))));
-  if (!list.length) { $("#upcoming").innerHTML = `<div class="empty">${q ? "مفيش نتايج." : "لسه مفيش رحلات. ضيف أول عميل من «إضافة»."}</div>`; return; }
+  const list = view.filter(t => (showPast || (t.arrUtc || t.depUtc) + 30 * H > now) &&
+    (!q || [t.name, t.phone, t.pnr, t.ref, t.flightNo, t.place].some(v => String(v || "").toLowerCase().includes(q))));
+  if (!list.length) { $("#upcoming").innerHTML = `<div class="empty">${q ? "مفيش نتايج." : "لسه مفيش حجوزات هنا."}</div>`; return; }
   const days = {}; list.forEach(t => { const d = fmtDay(t.depUtc); (days[d] = days[d] || []).push(t); });
   $("#upcoming").innerHTML = Object.entries(days).map(([d, ts]) => `<div class="day"><h3>${d}</h3>${ts.map(t => {
-    const sc = schedule(t);
-    const dots = KINDS.map(k => { const s = stateOf(t, k.key, now); const lbl = { sent: "اتبعتت ✓", wait: fmtFull(sc[k.key].due), due: "دلوقتي", late: "فاتت" }[s];
-      return `<span class="dot ${s === "wait" ? "" : s}"${s === "sent" ? ` data-undo="${t.id}" data-k="${k.key}" title="اضغط لو اتسجّلت غلط"` : ""}>${k.short}: ${lbl}</span>`; }).join("");
+    const sc = schedule(t), kind = kindOf(t);
+    const dots = KEYS.map(k => { const s = stateOf(t, k, now); const lbl = { sent: "اتبعتت ✓", wait: fmtFull(sc[k].due), due: "دلوقتي", late: "فاتت" }[s];
+      return `<span class="dot ${s === "wait" ? "" : s}"${s === "sent" ? ` data-undo="${t.id}" data-k="${k}" title="اضغط لو اتسجّلت غلط"` : ""}>${LABELS[kind][k][1]}: ${lbl}</span>`; }).join("");
+    const when = kind === "flight" ? `إقلاع ${fmtTime(t.depUtc)}${t.arrUtc ? " · وصول " + fmtFull(t.arrUtc) : ""}` : kind === "hotel" ? `دخول ${fmtFull(t.depUtc)}${t.arrUtc ? " · خروج " + fmtFull(t.arrUtc) : ""}` : `الميعاد ${fmtTime(t.depUtc)}`;
+    const chk = kind === "flight" && t.check ? (t.check.changed ? (t.check.resolved ? `<span class="ok-badge">✓ اتعدّل بعد الفحص</span>` : `<span class="dot late">⚠️ فيه تغيير</span>`) : t.check.found ? `<span class="ok-badge">✓ اتفحصت قبلها بيوم ومفيش تغيير</span>` : `<span class="small muted">الفحص مالقاش بيانات للرحلة</span>`) : "";
+    const ids = t.ticketIds || (t.ticketId ? [t.ticketId] : []);
     return `<div class="trip">
-      <div class="route">${esc(t.name)} · ${esc(t.from)} ← ${esc(t.to)}</div>
-      <div class="small muted">${esc([t.airline, t.flightNo].filter(Boolean).join(" "))} · إقلاع ${fmtTime(t.depUtc)}${t.arrUtc ? " · وصول " + fmtFull(t.arrUtc) : ""}${t.type === "umrah" ? " · عمرة" : ""}${t.pnr ? ` · <span class="mono">${esc(t.pnr)}</span>` : ""}</div>
-      <div class="small muted"><span class="mono">+${esc(t.phone)}</span>${t.createdBy ? " · أضافه " + esc(t.createdBy.split("@")[0]) : ""}</div>
-      <div class="dots">${dots}</div>
-      <div class="row">${t.ticketId ? `<button class="btn ghost small" data-tk="${t.ticketId}" style="min-height:36px;padding:4px 10px">صورة التذكرة</button>` : ""}<button class="btn ghost small" data-del="${t.id}" style="min-height:36px;padding:4px 10px">حذف</button><div class="tk" style="flex-basis:100%"></div></div>
+      <div class="route">${esc(t.name)} <span class="kind">${KIND_NAME[kind]}</span> · ${esc(titleOf(t))}</div>
+      <div class="small muted">${when}${t.type === "umrah" ? " · عمرة" : ""}${t.ref || t.pnr ? ` · <span class="mono">${esc(t.ref || t.pnr)}</span>` : ""}</div>
+      <div class="small muted"><span class="mono">+${esc(t.phone)}</span>${isAdmin ? " · " + esc(nameOf(t.createdBy || ADMIN)) : ""}</div>
+      <div class="dots">${dots}</div>${chk}
+      <div class="row">${ids.length ? `<button class="btn ghost small" data-tk="${ids.join(",")}" style="min-height:36px;padding:4px 10px">الصور</button>` : ""}<button class="btn ghost small" data-del="${t.id}" style="min-height:36px;padding:4px 10px">حذف</button><div class="tk" style="flex-basis:100%"></div></div>
     </div>`; }).join("")}</div>`).join("");
 }
 document.addEventListener("click", async e => {
   const s = e.target.closest("[data-sent]"); if (s) { s.disabled = true; await markSent(s.dataset.sent, s.dataset.k); return; }
   const u = e.target.closest("[data-undo]"); if (u) { if (u.dataset.confirm) { await undoSent(u.dataset.undo, u.dataset.k); } else { u.dataset.confirm = "1"; u.textContent = "إلغاء «اتبعتت»؟ اضغط تاني"; setTimeout(() => { if (u.isConnected) render(); }, 4000); } return; }
-  const tk = e.target.closest("[data-tk]"); if (tk) { showTicket(tk, tk.dataset.tk); return; }
+  const tk = e.target.closest("[data-tk]"); if (tk) { showTickets(tk, tk.dataset.tk.split(",")); return; }
+  const ap = e.target.closest("[data-apply]"); if (ap) { ap.disabled = true; const t = trips.find(x => x.id === ap.dataset.apply); if (t) await applyChange(t); return; }
+  const di = e.target.closest("[data-dismiss]"); if (di) { const t = trips.find(x => x.id === di.dataset.dismiss); if (t) await dismissChange(t); return; }
   const d = e.target.closest("[data-del]");
   if (d) {
     if (d.dataset.confirm) { d.disabled = true; const t = trips.find(x => x.id === d.dataset.del); if (t) await removeTrip(t); }
@@ -431,20 +531,18 @@ async function getReg() {
   return swReg;
 }
 if ("serviceWorker" in navigator) getReg().catch(() => {});
-
 async function enablePush(silent) {
   const st = $("#n-st"); st.className = "status";
-  if (isIOS && !standalone) { st.className = "status err"; st.textContent = "على الآيفون لازم تثبّت التطبيق على الشاشة الرئيسية الأول (شوف «تثبيت التطبيق» تحت)، وتفتحه من الأيقونة، وبعدين تفعّل الإشعارات."; return false; }
+  if (isIOS && !standalone) { st.className = "status err"; st.textContent = "على الآيفون لازم تثبّت التطبيق على الشاشة الرئيسية الأول، وتفتحه من الأيقونة، وبعدين تفعّل الإشعارات."; return false; }
   if (!(await M.isSupported().catch(() => false))) { st.className = "status err"; st.textContent = "المتصفح ده مش بيدعم الإشعارات. افتح التطبيق من Chrome."; return false; }
   if (!silent) st.textContent = "بنفعّل…";
   try {
     const perm = Notification.permission === "granted" ? "granted" : (silent ? Notification.permission : await Notification.requestPermission());
-    if (perm !== "granted") { if (!silent) { st.className = "status err"; st.textContent = perm === "denied" ? "الإشعارات مقفولة للتطبيق ده. افتحها من إعدادات الموبايل ← التطبيقات ← Chrome ← الإشعارات، أو من القفل جنب العنوان." : "لازم توافق على الإشعارات."; } return false; }
+    if (perm !== "granted") { if (!silent) { st.className = "status err"; st.textContent = perm === "denied" ? "الإشعارات مقفولة للتطبيق ده. افتحها من إعدادات الموبايل." : "لازم توافق على الإشعارات."; } return false; }
     const messaging = M.getMessaging(app);
     const token = await M.getToken(messaging, { vapidKey: CFG.vapidKey, serviceWorkerRegistration: await getReg() });
     if (!token) throw new Error("no token");
-    await F.setDoc(F.doc(db, "tokens", token), { uid: me.uid, email: (me.email || "").toLowerCase(), ua: navigator.userAgent.slice(0, 160), updatedAt: Date.now() });
-    try { localStorage.setItem("naseem-push", token); } catch (_) {}
+    await F.setDoc(F.doc(db, "tokens", token), { uid: me.uid, email: myEmail, ua: navigator.userAgent.slice(0, 160), updatedAt: Date.now() });
     st.className = "status good"; st.textContent = "الإشعارات شغالة على الموبايل ده ✓";
     $("#n-on").textContent = "الإشعارات شغالة ✓"; $("#push-hint").hidden = true;
     M.onMessage(messaging, p => {
@@ -461,8 +559,7 @@ async function enablePush(silent) {
 }
 function setupPushUi() {
   $("#n-on").onclick = () => enablePush(false);
-  const granted = "Notification" in window && Notification.permission === "granted";
-  if (granted) enablePush(true);
+  if ("Notification" in window && Notification.permission === "granted") enablePush(true);
   else {
     const h = $("#push-hint");
     h.innerHTML = isIOS && !standalone ? "عشان توصلك الإشعارات على الآيفون: ثبّت التطبيق على الشاشة الرئيسية من «الإعدادات»." : `الإشعارات لسه مش متفعّلة على الموبايل ده. <button class="btn brand" style="margin-top:8px;width:100%" id="hint-on">فعّل الإشعارات</button>`;
@@ -483,17 +580,19 @@ function setupInstallUi() {
   $("#i-btn").onclick = async () => { if (!deferredPrompt) return; deferredPrompt.prompt(); await deferredPrompt.userChoice.catch(() => {}); deferredPrompt = null; $("#i-btn").hidden = true; };
 }
 
-/* ---------------- team (owner) ---------------- */
+/* ---------------- team (admin) ---------------- */
 function watchTeam() {
   unsubTeam = F.onSnapshot(F.collection(db, "team"), snap => {
-    const list = snap.docs.map(d => d.id).sort();
-    $("#team-list").innerHTML = list.length ? list.map(em => `<div class="team-row"><span class="mono small">${esc(em)}</span><button class="btn ghost small" data-rm-team="${esc(em)}" style="min-height:36px;padding:4px 10px">شيل</button></div>`).join("") : `<div class="small muted">لسه مفيش حد متضاف.</div>`;
+    team = {}; snap.docs.forEach(d => team[d.id] = d.data());
+    const list = Object.keys(team).sort();
+    $("#team-list").innerHTML = list.length ? list.map(em => `<div class="team-row"><span><b>${esc(team[em].name || "")}</b> <span class="mono small">${esc(em)}</span></span><button class="btn ghost small" data-rm-team="${esc(em)}" style="min-height:36px;padding:4px 10px">شيل</button></div>`).join("") : `<div class="small muted">لسه مفيش حد متضاف.</div>`;
+    render();
   }, () => {});
 }
 $("#t-add").onclick = async () => {
-  const em = $("#t-email").value.trim().toLowerCase(), st = $("#t-st");
+  const em = $("#t-email").value.trim().toLowerCase(), nm = $("#t-name").value.trim(), st = $("#t-st");
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) { st.className = "status err"; st.textContent = "اكتب إيميل صحيح."; return; }
-  try { await F.setDoc(F.doc(db, "team", em), { addedAt: Date.now(), by: me.email }); $("#t-email").value = ""; st.className = "status good"; st.textContent = "اتضاف ✓ ابعتله لينك التطبيق يدخل بنفس الإيميل."; }
+  try { await F.setDoc(F.doc(db, "team", em), { name: nm, addedAt: Date.now(), by: myEmail }); $("#t-email").value = ""; $("#t-name").value = ""; st.className = "status good"; st.textContent = "اتضاف ✓ ابعتله لينك التطبيق يدخل بنفس الإيميل."; }
   catch (_) { st.className = "status err"; st.textContent = "الإضافة ماتمّتش."; }
 };
 document.addEventListener("click", async e => {
