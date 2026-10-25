@@ -598,9 +598,10 @@ async function enablePush(silent) {
     await F.setDoc(F.doc(db, "tokens", token), { uid: me.uid, email: myEmail, ua: navigator.userAgent.slice(0, 160), updatedAt: Date.now() });
     st.className = "status good"; st.textContent = "الإشعارات شغالة على الموبايل ده ✓";
     $("#n-on").textContent = "الإشعارات شغالة ✓"; $("#push-hint").hidden = true;
-    M.onMessage(messaging, p => {
+    M.onMessage(messaging, async p => {
       const n = p.notification || p.data || {};
       toast((n.title || "رسايل للعملاء") + (n.body ? ": " + n.body.split("\n")[0] : ""));
+      try { const reg = await getReg(); await reg.showNotification(n.title || "النسيم: رسايل للعملاء", { body: n.body || "", icon: "./icon-192.png", badge: "./badge.png", tag: "naseem-fg", renotify: true, dir: "rtl", lang: "ar", vibrate: [300, 150, 300], data: { link: "./#queue" } }); } catch (_) {}
       try { navigator.vibrate && navigator.vibrate([300, 150, 300]); } catch (_) {}
       setTab("queue"); render();
     });
@@ -610,8 +611,18 @@ async function enablePush(silent) {
     console.warn(e); return false;
   }
 }
+async function testNotification() {
+  const st = $("#n-st");
+  try {
+    if (Notification.permission !== "granted") { st.className = "status err"; st.textContent = "الإشعارات مش مسموحة. دوس «فعّل الإشعارات» الأول."; return; }
+    const reg = await getReg();
+    await reg.showNotification("تجربة إشعار من رحلات النسيم", { body: "لو شايف الإشعار ده في شريط الموبايل يبقى الإشعارات شغالة ✓", icon: "./icon-192.png", badge: "./badge.png", tag: "naseem-test", dir: "rtl", lang: "ar", vibrate: [300, 150, 300], data: { link: "./#queue" } });
+    st.className = "status good"; st.textContent = "اتبعت إشعار تجريبي. لو مظهرش في شريط الموبايل، الإشعارات مقفولة من إعدادات الموبايل.";
+  } catch (e) { st.className = "status err"; st.textContent = "الموبايل رفض يعرض الإشعار: " + (e && e.message || e); }
+}
 function setupPushUi() {
   $("#n-on").onclick = () => enablePush(false);
+  $("#n-test").onclick = testNotification;
   if ("Notification" in window && Notification.permission === "granted") enablePush(true);
   else {
     const h = $("#push-hint");
