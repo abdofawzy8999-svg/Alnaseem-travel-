@@ -5,6 +5,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: write
+  id-token: write
 concurrency:
   group: rihlat-notify
   cancel-in-progress: false
@@ -14,6 +15,10 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/653351622764/locations/global/workloadIdentityPools/github/providers/github
+          service_account: rihlat-notifier@naseem-rihlat.iam.gserviceaccount.com
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -23,7 +28,7 @@ jobs:
       - name: Send due notifications
         working-directory: rihlat/notifier
         env:
-          FIREBASE_SA: ${{ secrets.FIREBASE_SA }}
+          FIREBASE_PROJECT: naseem-rihlat
           APP_URL: https://abdofawzy8999-svg.github.io/Alnaseem-travel-/rihlat/
         run: node notify.mjs
       - name: Keep the schedule alive (GitHub pauses idle schedules after 60 days)
