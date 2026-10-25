@@ -13,18 +13,18 @@ async function getModel(name) {
   if (aiModels[name]) return aiModels[name];
   AIMOD = AIMOD || await import(`https://www.gstatic.com/firebasejs/${V}/firebase-ai.js`);
   const ai = AIMOD.getAI(app, { backend: new AIMOD.GoogleAIBackend() });
-  return aiModels[name] = AIMOD.getGenerativeModel(ai, { model: name, generationConfig: { responseMimeType: "application/json", temperature: 0 } });
+  return aiModels[name] = AIMOD.getGenerativeModel(ai, { model: name, generationConfig: { responseMimeType: "application/json", temperature: 0 } }, { timeout: 30000 });
 }
 // Try the configured models in order; retry briefly when Google is busy.
 async function generateWithFallback(parts) {
-  const names = CFG.aiModels || ["gemini-3.8-flash", "gemini-flash-latest", "gemini-flash-lite-latest"];
+  const names = CFG.aiModels || ["gemini-flash-lite-latest", "gemini-3.8-flash", "gemini-flash-latest"];
   let lastErr;
   for (const name of names) {
     for (let attempt = 0; attempt < 2; attempt++) {
       try { const m = await getModel(name); return await m.generateContent(parts); }
       catch (e) {
         lastErr = e; const msg = String(e && e.message || "");
-        if (/\[404|no longer available|not found/i.test(msg)) break;           // model gone: next model
+        if (/\[404|no longer available|not found|abort|timeout/i.test(msg)) break;           // model gone: next model
         if (/\[(429|500|503)|high demand|overloaded|unavailable/i.test(msg)) { await new Promise(r => setTimeout(r, 1500 * (attempt + 1))); continue; }
         throw e;
       }
@@ -271,11 +271,11 @@ async function readTicket() {
     const today = new Date().toISOString().slice(0, 10);
     const prompt = `This image is a screenshot of an airline e-ticket, booking confirmation or itinerary for a customer of an Egyptian travel agency.
 Extract exactly what is printed. Return ONLY a JSON object of this shape:
-{"passengerName": string, "otherPassengers": [string], "pnr": string, "phone": string, "isUmrah": boolean,
+{"passengerName": string, "otherPassengers": [string], "pnr": string, "isUmrah": boolean,
  "segments": [{"airline": string, "flightNo": string, "from": "3-letter IATA code", "to": "3-letter IATA code",
    "depDate": "YYYY-MM-DD", "depTime": "HH:MM 24h local time at the departure airport", "arrDate": "YYYY-MM-DD", "arrTime": "HH:MM 24h local time at the arrival airport"}]}
 Rules: include every flight segment in travel order (outbound, connections and return). Convert city or airport names to IATA codes (Cairo=CAI, Jeddah=JED, Madinah=MED, Riyadh=RUH, Sharjah=SHJ, Dubai=DXB, Borg El Arab=HBE, Sphinx=SPX, Tashkent=TAS).
-"phone" only if a passenger contact phone number is printed, else "". "isUmrah" true only if the ticket mentions Umrah/عمرة.
+"isUmrah" true only if the ticket mentions Umrah/عمرة.
 Use "" for anything not visible and never guess. If the year is missing, use the next future date after ${today}.`;
     const b64 = ticketData.split(",")[1];
     const res = await generateWithFallback([prompt, { inlineData: { data: b64, mimeType: "image/jpeg" } }]);
@@ -286,7 +286,6 @@ Use "" for anything not visible and never guess. If the year is missing, use the
     if (r.passengerName) $("#f-name").value = r.passengerName;
     if (r.pnr) $("#f-pnr").value = String(r.pnr).toUpperCase();
     if (r.isUmrah) $("#f-type").value = "umrah";
-    if (r.phone && !$("#f-phone").value && normPhone(r.phone)) $("#f-phone").value = r.phone;
     if (segs.length) {
       $("#segs").innerHTML = "";
       segs.forEach(s => {

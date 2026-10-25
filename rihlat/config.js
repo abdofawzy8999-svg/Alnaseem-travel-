@@ -14,5 +14,5 @@ self.NASEEM = {
   companyWhatsApp: "01021762000",
   sdk: "12.3.0",
   recaptchaKey: "6Lf0AAAuAAAAANxzoaSDALo9eejI2af-qQvC3-Kn",
-  aiModels: ["gemini-3.8-flash", "gemini-flash-latest", "gemini-flash-lite-latest"]
+  aiModels: ["gemini-flash-lite-latest", "gemini-3.8-flash", "gemini-flash-latest"]
 };
