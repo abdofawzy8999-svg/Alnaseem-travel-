@@ -151,17 +151,22 @@ details summary{cursor:pointer;font-weight:600;font-size:.85rem}
         <label class="pick" id="pick">
           <img id="f-prev" alt="صورة التذكرة" hidden>
           <span class="big" id="pick-t">صوّر أو اختار اسكرين التذكرة</span>
-          <span class="small muted" id="pick-s">اضغط هنا وهيفتحلك الاستوديو أو الكاميرا</span>
+          <span class="small muted" id="pick-s">البيانات هتتقري منها أوتوماتيك</span>
           <input type="file" id="f-file" accept="image/*" aria-label="صورة التذكرة">
         </label>
-        <div class="fields">
-          <label>اسم العميل<input id="f-name" autocomplete="off" required></label>
-          <label>رقم واتساب العميل<input id="f-phone" inputmode="tel" class="mono" placeholder="01012345678" required></label>
-          <label>نوع الرحلة<select id="f-type"><option value="travel">سفر عادي</option><option value="umrah">عمرة</option></select></label>
-          <label>رقم الحجز (PNR)<input id="f-pnr" class="mono" autocomplete="off"></label>
+        <div class="status" id="f-readst" role="status"></div>
+        <label>رقم واتساب العميل<input id="f-phone" inputmode="tel" class="mono" placeholder="01012345678" required></label>
+        <button type="button" class="btn ghost small" id="f-manual" style="min-height:36px">مفيش صورة؟ اكتب البيانات بإيدك</button>
+        <div id="f-auto" hidden style="display:flex;flex-direction:column;gap:12px">
+          <div class="small muted">البيانات اللي اتقرت من التذكرة (راجعها بسرعة):</div>
+          <div class="fields">
+            <label>اسم العميل<input id="f-name" autocomplete="off" required></label>
+            <label>رقم الحجز (PNR)<input id="f-pnr" class="mono" autocomplete="off"></label>
+            <label>نوع الرحلة<select id="f-type"><option value="travel">سفر عادي</option><option value="umrah">عمرة</option></select></label>
+          </div>
+          <div id="segs" style="display:flex;flex-direction:column;gap:10px"></div>
+          <button type="button" class="btn ghost" id="f-addseg">+ رحلة تانية (عودة أو ترانزيت)</button>
         </div>
-        <div id="segs" style="display:flex;flex-direction:column;gap:10px"></div>
-        <button type="button" class="btn ghost" id="f-addseg">+ رحلة تانية (عودة أو ترانزيت)</button>
         <button type="submit" class="btn primary block" id="f-save">حفظ وجدولة الرسايل</button>
         <div class="status" id="f-st"></div>
       </form>

@@ -12,5 +12,7 @@ self.NASEEM = {
   vapidKey: "BGQLj47hlbHkrs_A43ZnnXgeqI3lrq5EHAFlszlW9pQ4noDZLq1_0oFkjolju-Pk7OxceRngpzocDrA9mimHmtY",
   ownerEmail: "abdofawzy8999@gmail.com",
   companyWhatsApp: "01021762000",
-  sdk: "10.14.1"
+  sdk: "12.3.0",
+  recaptchaKey: "6Lf0AAAuAAAAANxzoaSDALo9eejI2af-qQvC3-Kn",
+  aiModel: "gemini-2.5-flash"
 };

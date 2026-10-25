@@ -3,8 +3,18 @@ const { initializeApp } = await import(`https://www.gstatic.com/firebasejs/${V}/
 const A = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-auth.js`);
 const F = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-firestore.js`);
 const M = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-messaging.js`);
+const AC = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-app-check.js`);
 
 const app = initializeApp(CFG.firebase);
+try { AC.initializeAppCheck(app, { provider: new AC.ReCaptchaEnterpriseProvider(CFG.recaptchaKey), isTokenAutoRefreshEnabled: true }); } catch (e) { console.warn("app check", e); }
+let aiModel = null;
+async function getModel() {
+  if (aiModel) return aiModel;
+  const AI = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-ai.js`);
+  const ai = AI.getAI(app, { backend: new AI.GoogleAIBackend() });
+  aiModel = AI.getGenerativeModel(ai, { model: CFG.aiModel || "gemini-2.5-flash", generationConfig: { responseMimeType: "application/json", temperature: 0 } });
+  return aiModel;
+}
 const auth = A.getAuth(app);
 const db = F.initializeFirestore(app, { localCache: F.persistentLocalCache({ tabManager: F.persistentMultipleTabManager() }) });
 
@@ -202,6 +212,7 @@ function readSegs() {
 }
 function resetSegs() { $("#segs").innerHTML = ""; $("#segs").appendChild(segRow()); }
 resetSegs();
+$("#f-manual").onclick = () => { $("#f-auto").hidden = false; $("#f-name").focus(); };
 $("#f-addseg").onclick = () => { const cur = readSegs(), last = cur[cur.length - 1] || {}; $("#segs").appendChild(segRow({ from: last.to, to: last.from, fromTz: last.toTz, toTz: last.fromTz })); };
 
 let ticketData = null;
@@ -229,17 +240,69 @@ $("#f-file").addEventListener("change", async e => {
     if (!ticketData) throw 0;
     $("#f-prev").src = ticketData; $("#f-prev").hidden = false;
     $("#pick-t").textContent = "الصورة اتحطت ✓"; $("#pick-s").textContent = "اضغط تاني لو عايز تغيّرها";
-  } catch (_) { ticketData = null; $("#pick-t").textContent = "الصورة دي ماتفتحتش، جرّب صورة تانية"; }
+  } catch (_) { ticketData = null; $("#pick-t").textContent = "الصورة دي ماتفتحتش، جرّب صورة تانية"; return; }
+  readTicket();
 });
+
+/* ---------------- read the ticket automatically (Gemini via Firebase AI Logic) ---------------- */
+let readSeq = 0;
+async function readTicket() {
+  const st = $("#f-readst"), my = ++readSeq;
+  st.className = "status"; st.textContent = "بنقرأ بيانات التذكرة أوتوماتيك… استنى ثواني";
+  $("#f-auto").hidden = true;
+  try {
+    const model = await getModel();
+    const today = new Date().toISOString().slice(0, 10);
+    const prompt = `This image is a screenshot of an airline e-ticket, booking confirmation or itinerary for a customer of an Egyptian travel agency.
+Extract exactly what is printed. Return ONLY a JSON object of this shape:
+{"passengerName": string, "otherPassengers": [string], "pnr": string, "phone": string, "isUmrah": boolean,
+ "segments": [{"airline": string, "flightNo": string, "from": "3-letter IATA code", "to": "3-letter IATA code",
+   "depDate": "YYYY-MM-DD", "depTime": "HH:MM 24h local time at the departure airport", "arrDate": "YYYY-MM-DD", "arrTime": "HH:MM 24h local time at the arrival airport"}]}
+Rules: include every flight segment in travel order (outbound, connections and return). Convert city or airport names to IATA codes (Cairo=CAI, Jeddah=JED, Madinah=MED, Riyadh=RUH, Sharjah=SHJ, Dubai=DXB, Borg El Arab=HBE, Sphinx=SPX, Tashkent=TAS).
+"phone" only if a passenger contact phone number is printed, else "". "isUmrah" true only if the ticket mentions Umrah/عمرة.
+Use "" for anything not visible and never guess. If the year is missing, use the next future date after ${today}.`;
+    const b64 = ticketData.split(",")[1];
+    const res = await model.generateContent([prompt, { inlineData: { data: b64, mimeType: "image/jpeg" } }]);
+    if (my !== readSeq) return;
+    let txt = res.response.text().trim().replace(/^```(?:json)?/i, "").replace(/```$/, "");
+    const r = JSON.parse(txt);
+    const segs = (Array.isArray(r.segments) ? r.segments : []).filter(s => s && (s.from || s.to || s.depDate));
+    if (r.passengerName) $("#f-name").value = r.passengerName;
+    if (r.pnr) $("#f-pnr").value = String(r.pnr).toUpperCase();
+    if (r.isUmrah) $("#f-type").value = "umrah";
+    if (r.phone && !$("#f-phone").value && normPhone(r.phone)) $("#f-phone").value = r.phone;
+    if (segs.length) {
+      $("#segs").innerHTML = "";
+      segs.forEach(s => {
+        const from = String(s.from || "").toUpperCase().slice(0, 3), to = String(s.to || "").toUpperCase().slice(0, 3);
+        $("#segs").appendChild(segRow({ ...s, from, to, flightNo: String(s.flightNo || "").toUpperCase(), arrDate: s.arrDate || s.depDate,
+          fromTz: AIRPORT_TZ[from] || CAIRO, toTz: AIRPORT_TZ[to] || "Asia/Riyadh" }));
+      });
+    }
+    const missing = segs.some(s => !s.depDate || !s.depTime || !s.from || !s.to) || !segs.length;
+    const others = (r.otherPassengers || []).filter(Boolean);
+    st.className = missing ? "status err" : "status good";
+    st.textContent = (missing ? "اتقرت جزئياً، كمّل الناقص تحت." : "اتقرت ✓ " + segs.length + (segs.length === 1 ? " رحلة" : " رحلات") + ". اكتب رقم واتساب العميل واحفظ.")
+      + (others.length ? ` (التذكرة فيها كمان: ${others.join("، ")})` : "");
+    $("#f-auto").hidden = false;
+    if (!$("#f-phone").value) setTimeout(() => $("#f-phone").focus(), 50);
+  } catch (e) {
+    if (my !== readSeq) return;
+    console.warn("read ticket", e);
+    st.className = "status err";
+    st.textContent = "ماقدرناش نقرأ التذكرة دي أوتوماتيك. جرّب اسكرين أوضح، أو اكتب البيانات بإيدك.";
+    $("#f-auto").hidden = false;
+  }
+}
 
 $("#form").addEventListener("submit", async e => {
   e.preventDefault();
   const st = $("#f-st"); st.className = "status err";
   const name = $("#f-name").value.trim(), phone = normPhone($("#f-phone").value);
-  if (!name) { st.textContent = "اكتب اسم العميل."; return; }
+  if (!name) { $("#f-auto").hidden = false; st.textContent = ticketData ? "استنى لحد ما التذكرة تتقري، أو اكتب اسم العميل." : "ارفع صورة التذكرة الأول."; return; }
   if (!phone) { st.textContent = "رقم الواتساب مش مظبوط. اكتبه زي 01012345678 أو بكود الدولة."; return; }
   const segs = readSegs();
-  for (const s of segs) if (!s.from || !s.to || !s.depDate || !s.depTime) { st.textContent = "كل رحلة محتاجة: من، إلى، تاريخ وساعة الإقلاع."; return; }
+  for (const s of segs) if (!s.from || !s.to || !s.depDate || !s.depTime) { $("#f-auto").hidden = false; st.textContent = "كل رحلة محتاجة: من، إلى، تاريخ وساعة الإقلاع."; return; }
   const btn = $("#f-save"); btn.disabled = true; st.className = "status"; st.textContent = "بنحفظ…";
   try {
     const batch = F.writeBatch(db);
@@ -259,7 +322,7 @@ $("#form").addEventListener("submit", async e => {
     }
     await batch.commit();
     st.className = "status good"; st.textContent = "اتحفظ ✓ الرسايل هتظهر وهيوصلكم إشعار في معادها.";
-    $("#form").reset(); ticketData = null; $("#f-prev").hidden = true; $("#pick-t").textContent = "صوّر أو اختار اسكرين التذكرة"; $("#pick-s").textContent = "اضغط هنا وهيفتحلك الاستوديو أو الكاميرا"; resetSegs();
+    $("#form").reset(); ticketData = null; $("#f-prev").hidden = true; $("#pick-t").textContent = "صوّر أو اختار اسكرين التذكرة"; $("#pick-s").textContent = "البيانات هتتقري منها أوتوماتيك"; resetSegs(); $("#f-auto").hidden = true; $("#f-readst").textContent = ""; readSeq++;
     toast("اتحفظ ✓");
   } catch (err) {
     st.className = "status err"; st.textContent = err && err.code === "permission-denied" ? "معندكش صلاحية تضيف رحلات." : "الحفظ ماتمّش. اتأكد من الإنترنت وجرّب تاني.";
