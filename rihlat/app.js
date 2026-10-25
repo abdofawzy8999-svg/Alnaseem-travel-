@@ -77,7 +77,7 @@ Times are 24h local times at each airport. "found" is true only if you found sch
 const checking = new Set(), checkFailed = new Set();
 let checkRunning = false;
 async function autoCheckFlights() {
-  if (checkRunning || !loaded) return;
+  if (!CFG.inAppFlightCheck || checkRunning || !loaded) return;
   const now = Date.now();
   const todo = trips.filter(t => kindOf(t) === "flight" && t.flightNo && !t.check && !checking.has(t.id) && !checkFailed.has(t.id)
     && t.depUtc - now < 30 * H && t.depUtc - now > 2 * H && (isAdmin || t.createdBy === myEmail));
