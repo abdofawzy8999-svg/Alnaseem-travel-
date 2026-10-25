@@ -1,0 +1,37 @@
+name: rihlat-notify
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: rihlat-notify
+  cancel-in-progress: false
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install firebase-admin
+        working-directory: rihlat/notifier
+        run: npm install --no-save --no-audit --no-fund firebase-admin@12.7.0
+      - name: Send due notifications
+        working-directory: rihlat/notifier
+        env:
+          FIREBASE_SA: ${{ secrets.FIREBASE_SA }}
+          APP_URL: https://abdofawzy8999-svg.github.io/Alnaseem-travel-/rihlat/
+        run: node notify.mjs
+      - name: Keep the schedule alive (GitHub pauses idle schedules after 60 days)
+        if: github.event_name == 'schedule'
+        run: |
+          last=$(git log -1 --format=%ct); now=$(date +%s)
+          if [ $((now-last)) -gt 3888000 ]; then
+            date -u > rihlat/notifier/.keepalive
+            git config user.name "naseem-bot"; git config user.email "naseem-bot@users.noreply.github.com"
+            git add rihlat/notifier/.keepalive && git commit -m "keepalive" && git push
+          fi
