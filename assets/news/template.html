@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>قالب أخبار النسيم ترافيل</title>
+<style>
+@font-face{font-family:"Cairo";font-weight:400;src:url(fonts/cairo-arabic-400-normal.woff2) format("woff2");unicode-range:U+0600-06FF,U+0750-077F,U+08A0-08FF,U+FB50-FDFF,U+FE70-FEFF,U+200C-200F}
+@font-face{font-family:"Cairo";font-weight:600;src:url(fonts/cairo-arabic-600-normal.woff2) format("woff2");unicode-range:U+0600-06FF,U+0750-077F,U+08A0-08FF,U+FB50-FDFF,U+FE70-FEFF,U+200C-200F}
+@font-face{font-family:"Cairo";font-weight:700;src:url(fonts/cairo-arabic-700-normal.woff2) format("woff2");unicode-range:U+0600-06FF,U+0750-077F,U+08A0-08FF,U+FB50-FDFF,U+FE70-FEFF,U+200C-200F}
+@font-face{font-family:"Cairo";font-weight:800;src:url(fonts/cairo-arabic-800-normal.woff2) format("woff2");unicode-range:U+0600-06FF,U+0750-077F,U+08A0-08FF,U+FB50-FDFF,U+FE70-FEFF,U+200C-200F}
+@font-face{font-family:"Cairo";font-weight:900;src:url(fonts/cairo-arabic-900-normal.woff2) format("woff2");unicode-range:U+0600-06FF,U+0750-077F,U+08A0-08FF,U+FB50-FDFF,U+FE70-FEFF,U+200C-200F}
+@font-face{font-family:"Cairo";font-weight:400;src:url(fonts/cairo-latin-400-normal.woff2) format("woff2");unicode-range:U+0000-00FF}
+@font-face{font-family:"Cairo";font-weight:600;src:url(fonts/cairo-latin-600-normal.woff2) format("woff2");unicode-range:U+0000-00FF}
+@font-face{font-family:"Cairo";font-weight:700;src:url(fonts/cairo-latin-700-normal.woff2) format("woff2");unicode-range:U+0000-00FF}
+@font-face{font-family:"Cairo";font-weight:800;src:url(fonts/cairo-latin-800-normal.woff2) format("woff2");unicode-range:U+0000-00FF}
+@font-face{font-family:"Cairo";font-weight:900;src:url(fonts/cairo-latin-900-normal.woff2) format("woff2");unicode-range:U+0000-00FF}
+:root{
+  --navy:#0a2c63; --blue:#0f408a; --sky:#e9f0fb; --orange:#f89a0c; --orange-soft:#fff3df; --ink:#11203d; --muted:#5d6b85;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:#d9dee8}
+body{font-family:"Cairo",sans-serif;color:var(--ink)}
+.card{width:1080px;height:1350px;background:#fff;position:relative;overflow:hidden;display:flex;flex-direction:column}
+.card.story{height:1920px}
+
+/* header */
+.head{display:flex;align-items:center;justify-content:space-between;padding:44px 60px 30px;gap:24px}
+.logo{height:118px;width:auto;display:block}
+.story .logo{height:150px}
+.tag{display:flex;flex-direction:column;align-items:flex-start;gap:10px}
+.badge{background:var(--orange);color:#fff;font-weight:800;font-size:36px;line-height:1;padding:16px 30px 20px;border-radius:999px;white-space:nowrap}
+.date{color:var(--muted);font-weight:600;font-size:28px;padding-inline-start:8px}
+
+/* hero */
+.hero{position:relative;margin:0 44px;border-radius:40px;background:linear-gradient(140deg,var(--blue) 0%,var(--navy) 100%);color:#fff;padding:56px 56px 60px;overflow:hidden;min-height:330px;display:flex;flex-direction:column;justify-content:center;gap:22px}
+.story .hero{min-height:520px;padding:70px 60px}
+.hero svg.deco{position:absolute;inset:0;width:100%;height:100%;opacity:.95;pointer-events:none}
+.headline{position:relative;font-weight:900;font-size:76px;line-height:1.28;letter-spacing:-.5px;text-wrap:balance}
+.highlight{position:relative;align-self:flex-start;background:#fff;color:var(--navy);font-weight:900;font-size:46px;line-height:1;padding:18px 30px 24px;border-radius:22px;border-inline-start:12px solid var(--orange)}
+
+/* facts */
+.facts{display:flex;flex-direction:column;gap:20px;padding:40px 56px 0}
+.story .facts{gap:28px;padding-top:60px}
+.fact{display:flex;align-items:center;gap:24px;background:var(--sky);border-radius:26px;padding:22px 30px 26px}
+.num{flex:0 0 58px;height:58px;border-radius:50%;background:var(--orange);color:#fff;font-weight:900;font-size:32px;display:flex;align-items:center;justify-content:center;padding-bottom:4px}
+.fact p{font-weight:700;font-size:38px;line-height:1.4;color:var(--navy)}
+.story .fact p{font-size:44px}
+
+/* action */
+.action{margin:26px 56px 0;background:var(--orange-soft);border:3px solid var(--orange);border-radius:26px;padding:22px 30px 26px;display:flex;gap:18px;align-items:flex-start}
+.action b{flex:none;font-weight:900;font-size:36px;color:#b86a00;line-height:1.45}
+.action p{font-weight:700;font-size:36px;line-height:1.45;color:var(--ink)}
+.story .action{margin-top:40px}
+.story .action b,.story .action p{font-size:42px}
+
+.spacer{flex:1}
+.source{padding:0 60px 18px;color:var(--muted);font-weight:600;font-size:24px;text-align:right}
+.story .source{font-size:30px;padding-bottom:28px}
+
+/* footer */
+.foot{background:var(--navy);color:#fff;display:flex;align-items:center;justify-content:space-between;padding:26px 60px 32px;gap:20px}
+.story .foot{padding:44px 60px 56px}
+.wa{display:flex;align-items:center;gap:16px;font-weight:900;font-size:44px;direction:ltr}
+.wa svg{width:52px;height:52px}
+.slogan{font-weight:800;font-size:34px;color:var(--orange)}
+.story .wa{font-size:54px}.story .slogan{font-size:42px}
+</style>
+</head>
+<body>
+<div class="card" id="card">
+  <div class="head">
+    <div class="tag"><span class="badge" id="badge"></span><span class="date" id="date"></span></div>
+    <img class="logo" src="../../logo.png" alt="النسيم ترافيل">
+  </div>
+  <div class="hero">
+    <svg class="deco" id="deco" viewBox="0 0 1000 400" preserveAspectRatio="xMidYMid slice" aria-hidden="true"></svg>
+    <h1 class="headline" id="headline"></h1>
+    <div class="highlight" id="highlight" hidden></div>
+  </div>
+  <div class="facts" id="facts"></div>
+  <div class="action" id="action" hidden><b>المطلوب منك:</b><p id="action-t"></p></div>
+  <div class="spacer"></div>
+  <div class="source" id="source"></div>
+  <div class="foot">
+    <div class="wa"><svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="15" fill="#25D366"/><path fill="#fff" d="M22.5 18.9c-.3-.2-1.9-.9-2.2-1s-.5-.2-.7.2-.8 1-1 1.2-.4.2-.7 0a9 9 0 0 1-2.6-1.6 9.8 9.8 0 0 1-1.8-2.3c-.2-.3 0-.5.1-.7l.5-.6.3-.5a.6.6 0 0 0 0-.5l-1-2.4c-.3-.6-.5-.5-.7-.5h-.6a1.2 1.2 0 0 0-.9.4 3.7 3.7 0 0 0-1.1 2.7 6.4 6.4 0 0 0 1.3 3.4 14.7 14.7 0 0 0 5.6 5c2.1.9 2.9 1 3.9.8a3.3 3.3 0 0 0 2.2-1.5 2.7 2.7 0 0 0 .2-1.5c-.1-.1-.3-.2-.6-.3z"/></svg><span>01021762000</span></div>
+    <div class="slogan">النسيم ترافيل · سافرها صح</div>
+  </div>
+</div>
+<script>
+// Data comes from window.NEWS (set by render.py) or from the URL hash (#{"headline":...}) for previews.
+const sample = {
+  format: "feed", kind: "flight", badge: "أخبار الطيران", date: "الاثنين 26 أكتوبر 2026",
+  headline: "مصر للطيران تمد إيقاف رحلات الرياض لحين إشعار آخر",
+  highlight: "تغيير الوجهة أو الاسترداد بدون رسوم",
+  points: ["مطار الملك خالد رجع يشتغل يوم الأحد 25 أكتوبر", "رحلات القاهرة والإسكندرية للرياض لسه متوقفة", "تقدر تغيّر لجدة أو المدينة من غير فرق سعر"],
+  action: "اتأكد من حالة رحلتك برقم الرحلة قبل ما تتحرك للمطار",
+  source: "المصدر: بيان مصر للطيران"
+};
+let d = window.NEWS;
+if (!d) { try { d = JSON.parse(decodeURIComponent(location.hash.slice(1))); } catch (_) { d = sample; } }
+const $ = id => document.getElementById(id);
+const card = $("card");
+if (d.format === "story") card.classList.add("story");
+$("badge").textContent = d.badge || "أخبار";
+$("date").textContent = d.date || "";
+$("headline").textContent = d.headline || "";
+if (d.highlight) { $("highlight").textContent = d.highlight; $("highlight").hidden = false; }
+(d.points || []).slice(0, d.format === "story" ? 5 : 4).forEach((p, i) => {
+  const el = document.createElement("div"); el.className = "fact";
+  el.innerHTML = `<span class="num">${i + 1}</span><p></p>`; el.querySelector("p").textContent = p;
+  $("facts").appendChild(el);
+});
+if (d.action) { $("action-t").textContent = d.action; $("action").hidden = false; }
+$("source").textContent = d.source || "";
+
+// decorative layer per category
+const deco = $("deco"), kind = d.kind || "flight";
+if (kind === "umrah") {
+  let s = ""; for (let x = -40; x < 1100; x += 120) for (let y = -40; y < 480; y += 120) {
+    s += `<g transform="translate(${x},${y})" fill="none" stroke="#ffffff" stroke-opacity=".10" stroke-width="2"><rect x="-26" y="-26" width="52" height="52"/><rect x="-26" y="-26" width="52" height="52" transform="rotate(45)"/></g>`;
+  }
+  deco.innerHTML = s + `<circle cx="70" cy="70" r="150" fill="#f89a0c" fill-opacity=".14"/>`;
+} else {
+  deco.innerHTML = `<path d="M-20 360 C 220 120, 520 80, 1040 -20" fill="none" stroke="#f89a0c" stroke-opacity=".55" stroke-width="4" stroke-dasharray="14 14"/>
+    <circle cx="900" cy="330" r="190" fill="#ffffff" fill-opacity=".05"/><circle cx="900" cy="330" r="120" fill="#ffffff" fill-opacity=".05"/>
+    <g transform="translate(70 230) rotate(-30) scale(4)" fill="#ffffff" fill-opacity=".22"><path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z"/></g>`;
+}
+
+// shrink the headline until it fits in 3 lines (4 in stories)
+const h = $("headline"), maxLines = d.format === "story" ? 4 : 3;
+let size = d.format === "story" ? 92 : 76;
+const fit = () => { h.style.fontSize = size + "px"; return h.scrollHeight <= size * 1.28 * maxLines + 4; };
+document.fonts.ready.then(() => { while (!fit() && size > 44) size -= 2; document.body.dataset.ready = "1"; });
+</script>
+</body>
+</html>
