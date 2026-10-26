@@ -1,0 +1,27 @@
+name: fetch-fonts
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  fonts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Download Cairo font files
+        run: |
+          mkdir -p /tmp/f && cd /tmp/f && npm init -y >/dev/null && npm install --no-audit --no-fund @fontsource/cairo >/dev/null
+          mkdir -p "$GITHUB_WORKSPACE/assets/news/fonts"
+          for w in 400 600 700 800 900; do
+            for s in arabic latin; do
+              cp node_modules/@fontsource/cairo/files/cairo-$s-$w-normal.woff2 "$GITHUB_WORKSPACE/assets/news/fonts/" || true
+            done
+          done
+          ls -la "$GITHUB_WORKSPACE/assets/news/fonts"
+      - name: Commit
+        run: |
+          git config user.name "naseem-bot"; git config user.email "naseem-bot@users.noreply.github.com"
+          git add assets/news/fonts && git commit -m "Add Cairo font files for news template" && git push || echo "nothing to commit"
