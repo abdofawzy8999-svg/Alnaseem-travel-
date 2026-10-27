@@ -26,7 +26,7 @@ self.addEventListener("notificationclick", e => {
   })());
 });
 
-const SHELL = "naseem-shell-v15";
+const SHELL = "naseem-shell-v16";
 const FILES = ["./", "./index.html", "./app.js", "./config.js", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png"];
 self.addEventListener("install", e => { self.skipWaiting(); e.waitUntil(caches.open(SHELL).then(c => c.addAll(FILES)).catch(() => {})); });
 self.addEventListener("activate", e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== SHELL).map(k => caches.delete(k)))).then(() => clients.claim())); });

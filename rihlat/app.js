@@ -234,7 +234,7 @@ function tasheerBranch(t) {
   if (/alex|اسكندري|إسكندري/.test(s)) return "الإسكندرية";
   return t.address || "";
 }
-const BRANCH_MAPS = { "الشيخ زايد": "https://maps.app.goo.gl/tMzGRVhczX8i1kDN8", "المهندسين": "https://maps.app.goo.gl/5NMtCQz3sB8t1PD26", "سوهاج": "https://maps.app.goo.gl/89PDpKtBZhW6LVW37" };
+const BRANCH_MAPS = { "الشيخ زايد": "https://maps.app.goo.gl/tMzGRVhczX8i1kDN8", "المهندسين": "https://maps.app.goo.gl/5NMtCQz3sB8t1PD26", "سوهاج": "https://maps.app.goo.gl/89PDpKtBZhW6LVW37", "القطامية": "https://maps.app.goo.gl/Wc4fDDUepmV9irCw5" };
 function mapsLink(t) {
   const br = tasheerBranch(t);
   if (isTasheer(t) && BRANCH_MAPS[br]) return BRANCH_MAPS[br];
@@ -278,6 +278,25 @@ function msgBody(t, k) {
   if (k === "d24") return `أهلاً ${first} 👋\nمعاك النسيم ترافيل ✈️\nتذكير برحلتك بكره:\n\n✈️ ${route}${fl ? " (" + fl + ")" : ""}\n📅 ${st.d}\n🕐 الإقلاع ${st.t} بتوقيت ${t.from}${t.ref || t.pnr ? "\n📌 رقم الحجز: " + (t.ref || t.pnr) : ""}\n\nبرجاء التأكد من:\n✅ جواز السفر ساري\n✅ ${um ? "تأشيرة العمرة وتصريح نُسُك" : "التأشيرة"} وصورة التذكرة معاك\n⏳ يُفضّل الوصول للمطار قبل الإقلاع بـ 3 ساعات\n\nرحلة سعيدة 🌷\n${sign}`;
   if (k === "h4") return `أهلاً ${first} ✈️\nفاضل حوالي 4 ساعات على إقلاع رحلتك${fl ? " " + fl : ""} ⏰\nده وقت التوجّه للمطار والكاونتر.\n\n✅ الباسبور والتذكرة${um ? " وتصريح نُسُك" : ""} في إيدك\n✅ الشنطة في الوزن المسموح\n\nلو احتجت أي حاجة في المطار كلمنا فوراً: ${COMPANY_WA}\nتوصل بالسلامة 🌷\nالنسيم ترافيل`;
   return `حمد الله على السلامة يا ${first} 🌷\nنتمنى تكون وصلت ${t.to} بالسلامة ورحلتك كانت مريحة ✈️\n${um ? "تقبّل الله منك صالح الأعمال، ومتنساناش من دعائك 🤲\n" : ""}\nلو محتاج أي خدمة وأنت هناك إحنا معاك: ${COMPANY_WA}\nويسعدنا جداً تقييمك لخدمتنا على صفحتنا 💙\n${sign}`;
+}
+/* first message, sent right after saving: all booking details in one message */
+function confirmText(list) {
+  const t0 = list[0] || {};
+  const first = "أ/ " + ((t0.name || "").trim().split(/\s+/)[0] || "");
+  const um = t0.type === "umrah";
+  const blocks = list.map(t => {
+    const k = kindOf(t), st = fmtLocal(t.depDate, t.depTime), en = fmtLocal(t.arrDate, t.arrTime);
+    if (k === "hotel") return `🏨 ${t.place || "الفندق"}${t.city ? " - " + t.city : ""}\n📅 الدخول: ${st.d}${st.t ? " من الساعة " + st.t : ""}\n📅 الخروج: ${en.d}${en.t ? " الساعة " + en.t : ""}${t.ref ? "\n📌 رقم الحجز: " + t.ref : ""}`;
+    if (k === "embassy") {
+      const tas = isTasheer(t), br = tas ? tasheerBranch(t) : "", loc = mapsLink(t);
+      return `🏛️ ${tas ? "تأشير" + (br ? " - فرع " + br : "") : (t.place || "السفارة") + (t.city ? " - " + t.city : "")}\n📅 ${st.d} الساعة ${st.t}${t.ref ? "\n📌 رقم الميعاد: " + t.ref : ""}${loc ? "\n📍 اللوكيشن: " + loc : ""}`;
+    }
+    const fl = [t.airline, t.flightNo].filter(Boolean).join(" ");
+    return `✈️ ${t.from} ← ${t.to}${fl ? " (" + fl + ")" : ""}\n📅 ${st.d}\n🕐 الإقلاع ${st.t} بتوقيت ${t.from}${en.t ? " – الوصول " + en.t + (t.arrDate && t.arrDate !== t.depDate ? " (" + en.d + ")" : "") : ""}${t.ref ? "\n📌 رقم الحجز: " + t.ref : ""}`;
+  });
+  const tas = list.find(t => kindOf(t) === "embassy" && isTasheer(t));
+  const docs = tas ? `\n\n📝 أوراق ميعاد تأشير (مطبوعة بشكل واضح):\n✅ أصل جواز السفر\n✅ أصل كشف الحساب البنكي\n✅ تأكيد موعد تأشير\n✅ ملف إنجاز\n✅ إيصال سداد ملف إنجاز\n✅ حجز الفندق المبدئي\n✅ حجز الطيران المبدئي\n✅ كارت بنكي (فيزا) لدفع 700 جنيه رسوم توصيل الجواز للمنزل${familyDocs(tas.companions).length ? "\n" + familyDocs(tas.companions).join("\n") : ""}\n⏳ لازم توصل قبل الميعاد بربع ساعة\n⚠️ لو اتأخرت عن ميعادك هتدخل «موعد مميز» وتدفع رسوم إضافية` : "";
+  return `أهلاً ${first} 👋\nمعاك النسيم ترافيل ✅\nتم تأكيد ${list.length > 1 ? "حجوزاتك" : "حجزك"}${um ? " للعمرة 🕋" : ""}، ودي التفاصيل:\n\n${blocks.join("\n\n")}${docs}\n\nهنفكّرك قبل كل ميعاد بيوم وقبله بـ 4 ساعات إن شاء الله 🌷\nلو عندك أي استفسار إحنا معاك.\nللتواصل: ${COMPANY_WA}\n${SLOGAN}`;
 }
 const waLink = (t, k) => "https://wa.me/" + t.phone + "?text=" + encodeURIComponent(msgText(t, k));
 
@@ -489,21 +508,27 @@ $("#form").addEventListener("submit", async e => {
     const batch = F.writeBatch(db);
     const ticketIds = images.slice(0, 8).map(im => { const r = F.doc(F.collection(db, "tickets")); batch.set(r, { data: im.data, createdAt: Date.now(), by: myEmail }); return r.id; });
     const group = Date.now().toString(36);
+    const saved = [];
     for (const it of items) {
       const depUtc = localToUtc(it.depDate, it.depTime, it.fromTz);
       let arrUtc = it.kind === "embassy" ? depUtc + H : (it.arrTime || it.kind === "hotel") ? localToUtc(it.arrDate, it.arrTime || "12:00", it.toTz) : null;
       if (it.kind === "flight" && arrUtc && arrUtc < depUtc) arrUtc += 24 * H;
-      batch.set(F.doc(F.collection(db, "trips")), {
+      const rec = {
         kind: it.kind, name, phone, type: $("#f-type").value, ref: it.ref || "", pnr: it.kind === "flight" ? (it.ref || "") : "",
         from: it.from || "", to: it.to || "", airline: it.airline || "", flightNo: it.flightNo || "", place: it.place || "", city: it.city || "", address: it.address || "", companions: it.companions || "",
         fromTz: it.fromTz || CAIRO, toTz: it.toTz || it.fromTz || CAIRO,
         depDate: it.depDate, depTime: it.depTime, arrDate: it.arrDate || "", arrTime: it.arrTime || "", depUtc, arrUtc,
         ticketIds, group, createdAt: Date.now(), createdBy: myEmail, sent: {}, notified: {}
-      });
+      };
+      batch.set(F.doc(F.collection(db, "trips")), rec); saved.push(rec);
     }
     await batch.commit();
-    st.className = "status good"; st.textContent = `اتحفظ ✓ ${items.length} ${items.length === 1 ? "حجز" : "حجوزات"} واتجدولت رسايلهم.`;
+    saved.sort((a, b) => a.depUtc - b.depUtc);
+    const link = "https://wa.me/" + phone + "?text=" + encodeURIComponent(confirmText(saved));
     resetForm(); toast("اتحفظ ✓");
+    st.className = "status good";
+    st.innerHTML = `اتحفظ ✓ ${items.length} ${items.length === 1 ? "حجز" : "حجوزات"} واتجدولت رسايلهم. <a class="btn" href="${esc(link)}" target="_blank" rel="noopener" style="margin-inline-start:8px">📩 ابعت رسالة التأكيد للعميل</a>`;
+    setTimeout(() => { location.href = link; }, 400);
   } catch (err) {
     console.warn(err);
     st.className = "status err"; st.textContent = err && err.code === "permission-denied" ? "معندكش صلاحية تضيف." : "الحفظ ماتمّش. اتأكد من الإنترنت وجرّب تاني.";
