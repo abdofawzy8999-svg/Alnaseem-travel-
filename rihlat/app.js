@@ -222,7 +222,33 @@ function stateOf(t, k, now) {
   return "late";
 }
 const titleOf = t => kindOf(t) === "flight" ? `${t.from} ← ${t.to}${t.flightNo ? " · " + t.flightNo : ""}` : `${t.place || KIND_NAME[kindOf(t)]}${t.city ? " · " + t.city : ""}`;
-function msgText(t, k) {
+const SLOGAN = "خلي دايماً النسيم ترافيل نسيمك لعالم أسهل 🌍";
+const COMPANIONS = [["", "لوحده"], ["family", "عيلة (مش متأكد مين)"], ["spouse", "مع زوجته / زوجها"], ["kids", "مع أطفال"], ["spouse_kids", "زوج وزوجة وأطفال"], ["parent_child", "أب أو أم مع ابن / بنت"]];
+const isTasheer = t => /tasheer|tasahel|تأشير|تاشير|تساهيل/i.test((t.place || "") + " " + (t.address || ""));
+function tasheerBranch(t) {
+  const s = ((t.address || "") + " " + (t.place || "") + " " + (t.city || "")).toLowerCase();
+  if (/katam|kattam|قطامي/.test(s)) return "القطامية";
+  if (/mohand|مهندس/.test(s)) return "المهندسين";
+  if (/zayed|zayid|زايد/.test(s)) return "الشيخ زايد";
+  if (/alex|اسكندري|إسكندري/.test(s)) return "الإسكندرية";
+  return t.address || "";
+}
+function mapsLink(t) {
+  const br = tasheerBranch(t);
+  const q = isTasheer(t) ? `Tasheer Saudi Visa Center ${t.address || br || t.city || ""} Egypt` : [t.place, t.address, t.city].filter(Boolean).join(" ");
+  return q.trim() ? "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(q) : "";
+}
+function familyDocs(c) {
+  const sp = "✅ قسيمة زواج موثقة", kd = "✅ شهادة ميلاد موثقة لكل طفل", pc = "✅ شهادة ميلاد موثقة للابن / البنت";
+  if (c === "spouse") return [sp];
+  if (c === "kids") return [kd];
+  if (c === "spouse_kids") return [sp, kd];
+  if (c === "parent_child") return [pc];
+  if (c === "family") return ["👨‍👩‍👧 لو مسافرين كعيلة:", "• زوج وزوجة: قسيمة زواج موثقة", "• مع أطفال: شهادة ميلاد موثقة لكل طفل", "• أب أو أم مع الابن: شهادة ميلاد موثقة للابن"];
+  return [];
+}
+function msgText(t, k) { return msgBody(t, k).trimEnd() + "\n" + SLOGAN; }
+function msgBody(t, k) {
   const first = (t.name || "").trim().split(/\s+/)[0] || "";
   const um = t.type === "umrah", kind = kindOf(t);
   const st = fmtLocal(t.depDate, t.depTime), en = fmtLocal(t.arrDate, t.arrTime);
@@ -231,6 +257,13 @@ function msgText(t, k) {
     if (k === "d24") return `أهلاً ${first} 👋\nمعاك النسيم ترافيل 🏨\nتذكير بحجزك بكره:\n\n🏨 ${t.place || "الفندق"}${t.city ? " - " + t.city : ""}\n📅 الدخول: ${st.d}${st.t ? " من الساعة " + st.t : ""}\n📅 الخروج: ${en.d}${en.t ? " الساعة " + en.t : ""}${t.ref ? "\n📌 رقم الحجز: " + t.ref : ""}\n\nخلي معاك الباسبور وتأكيد الحجز.\nإقامة سعيدة 🌷\n${sign}`;
     if (k === "h4") return `أهلاً ${first} 🏨\nفاضل حوالي 4 ساعات على ميعاد دخولك فندق ${t.place || ""} ⏰\n${t.ref ? "📌 رقم الحجز: " + t.ref + "\n" : ""}لو حصلت أي مشكلة في الاستلام كلمنا فوراً: ${COMPANY_WA}\nالنسيم ترافيل`;
     return `أهلاً ${first} 🌷\nتذكير: ميعاد تسجيل الخروج من فندق ${t.place || ""} النهارده${en.t ? " الساعة " + en.t : ""}.\nنتمنى تكون إقامتك كانت مريحة 🙏\nلو محتاج تمديد أو مواصلات للمطار إحنا معاك: ${COMPANY_WA}\nويسعدنا تقييمك لخدمتنا 💙\n${sign}`;
+  }
+  if (kind === "embassy" && isTasheer(t)) {
+    const br = tasheerBranch(t), loc = mapsLink(t);
+    const docs = ["✅ أصل جواز السفر", "✅ أصل كشف الحساب البنكي", "✅ تأكيد موعد تأشير", "✅ ملف إنجاز", "✅ إيصال سداد ملف إنجاز", "✅ حجز الفندق المبدئي", "✅ حجز الطيران المبدئي", ...familyDocs(t.companions)];
+    if (k === "d24") return `أهلاً ${first} 👋\nمعاك النسيم ترافيل\nتذكير بميعادك في مركز تأشير بكره:\n\n🏛️ تأشير${br ? " - فرع " + br : ""}\n📅 ${st.d}\n🕐 الساعة ${st.t}${t.ref ? "\n📌 رقم الميعاد: " + t.ref : ""}${loc ? "\n📍 اللوكيشن: " + loc : ""}\n\nجهّز الأوراق دي مطبوعة بشكل واضح:\n${docs.join("\n")}\n\n⏳ لازم توصل قبل الميعاد بربع ساعة\n⭐ الدخول بيكون «مميز» وفيه رسوم إضافية بتتدفع في المركز\n\nربنا يوفقك 🌷\n${sign}`;
+    if (k === "h4") return `أهلاً ${first} 🏛️\nفاضل حوالي 4 ساعات على ميعادك في تأشير${br ? " فرع " + br : ""} (الساعة ${st.t}) ⏰\nلازم توصل قبل الميعاد بربع ساعة.${loc ? "\n📍 اللوكيشن: " + loc : ""}\n\nاتأكد إن معاك مطبوع: الباسبور الأصلي، كشف الحساب الأصلي، ملف إنجاز وإيصال السداد، حجز الفندق والطيران المبدئي${familyDocs(t.companions).length ? "، وأوراق العيلة الموثقة" : ""}.\nلو احتجت أي حاجة كلمنا: ${COMPANY_WA}\nالنسيم ترافيل`;
+    return `أهلاً ${first} 🌷\nنتمنى يكون ميعادك في تأشير عدّى على خير 🙏\nهنتابع معاك التأشيرة أول بأول، ولو فيه أي أوراق ناقصة إحنا معاك: ${COMPANY_WA}\n${sign}`;
   }
   if (kind === "embassy") {
     if (k === "d24") return `أهلاً ${first} 👋\nمعاك النسيم ترافيل\nتذكير بميعادك بكره:\n\n🏛️ ${t.place || "السفارة"}${t.city ? " - " + t.city : ""}\n📅 ${st.d}\n🕐 الساعة ${st.t}${t.ref ? "\n📌 رقم الميعاد: " + t.ref : ""}\n\nجهّز معاك:\n✅ الباسبور الأصلي\n✅ كل الأوراق والصور المطلوبة\n✅ تأكيد الميعاد مطبوع\n⏳ يُفضّل توصل قبل الميعاد بنص ساعة\n\nربنا يوفقك 🌷\n${sign}`;
@@ -317,7 +350,9 @@ function itemRow(it = {}) {
       <label>تاريخ الميعاد<input type="date" class="i-sd" value="${esc(v.depDate || "")}"></label>
       <label>ساعة الميعاد<input type="time" class="i-st" value="${esc(v.depTime || "")}"></label>
       <label>توقيت البلد<select class="i-tz">${tzSel(v.fromTz || CAIRO)}</select></label>
-      <label>رقم الميعاد<input class="mono i-ref" value="${esc(v.ref || "")}"></label></div>`;
+      <label>رقم الميعاد<input class="mono i-ref" value="${esc(v.ref || "")}"></label>
+      <label>الفرع / العنوان<input class="i-addr" value="${esc(v.address || "")}" placeholder="مثلاً: القطامية"></label>
+      <label>مسافر مع مين؟<select class="i-comp">${COMPANIONS.map(([val, txt]) => `<option value="${val}"${val === (v.companions || "") ? " selected" : ""}>${txt}</option>`).join("")}</select></label></div>`;
     el.innerHTML = head + body;
     el.querySelector(".i-kind").onchange = e => { it = Object.assign(readItem(el), { kind: e.target.value }); el.dataset.kind = e.target.value; draw(); };
     el.querySelector(".rm").onclick = () => el.remove();
@@ -335,7 +370,7 @@ function readItem(el) {
   const kind = el.dataset.kind;
   if (kind === "flight") return { kind, from: v(".i-from").toUpperCase(), to: v(".i-to").toUpperCase(), airline: v(".i-air"), flightNo: v(".i-fl").toUpperCase(), depDate: v(".i-sd"), depTime: v(".i-st"), arrDate: v(".i-ed") || v(".i-sd"), arrTime: v(".i-et"), fromTz: v(".i-ftz"), toTz: v(".i-ttz"), ref: v(".i-ref").toUpperCase() };
   if (kind === "hotel") return { kind, place: v(".i-place"), city: v(".i-city"), depDate: v(".i-sd"), depTime: v(".i-st") || "14:00", arrDate: v(".i-ed"), arrTime: v(".i-et") || "12:00", fromTz: v(".i-tz"), toTz: v(".i-tz"), ref: v(".i-ref") };
-  return { kind, place: v(".i-place"), city: v(".i-city"), depDate: v(".i-sd"), depTime: v(".i-st"), arrDate: v(".i-sd"), arrTime: "", fromTz: v(".i-tz"), toTz: v(".i-tz"), ref: v(".i-ref") };
+  return { kind, place: v(".i-place"), city: v(".i-city"), depDate: v(".i-sd"), depTime: v(".i-st"), arrDate: v(".i-sd"), arrTime: "", fromTz: v(".i-tz"), toTz: v(".i-tz"), ref: v(".i-ref"), address: v(".i-addr"), companions: v(".i-comp") };
 }
 const readItems = () => [...document.querySelectorAll("#items .seg")].map(readItem);
 document.querySelectorAll("[data-additem]").forEach(b => b.onclick = () => {
@@ -391,7 +426,7 @@ Extract every booking exactly as printed. Return ONLY one JSON object:
  "items": [
   {"kind":"flight","airline":string,"flightNo":string,"from":"IATA","to":"IATA","fromTz":"IANA timezone of departure airport","toTz":"IANA timezone of arrival airport","depDate":"YYYY-MM-DD","depTime":"HH:MM","arrDate":"YYYY-MM-DD","arrTime":"HH:MM","ref":"PNR / booking reference"},
   {"kind":"hotel","place":"hotel name","city":string,"tz":"IANA timezone","checkInDate":"YYYY-MM-DD","checkInTime":"HH:MM","checkOutDate":"YYYY-MM-DD","checkOutTime":"HH:MM","ref":"confirmation number"},
-  {"kind":"embassy","place":"embassy / visa center name","city":string,"tz":"IANA timezone","date":"YYYY-MM-DD","time":"HH:MM","ref":"appointment / reference number"}
+  {"kind":"embassy","place":"embassy / visa center name","city":string,"address":"branch / location / address exactly as printed (e.g. Katameya, Mohandessin, Sheikh Zayed)","applicants":number of applicants listed,"tz":"IANA timezone","date":"YYYY-MM-DD","time":"HH:MM","ref":"appointment / reference number"}
  ]}
 Rules: one item per flight segment (outbound, connections, return) in travel order, one per hotel stay, one per appointment. Times are 24h LOCAL times as printed. Convert city/airport names to IATA codes (Cairo=CAI, Jeddah=JED, Madinah=MED, Riyadh=RUH, Sharjah=SHJ, Dubai=DXB, Borg El Arab=HBE, Sphinx=SPX).
 Hotel check-in/out times: use the printed ones, else "" (we default to 14:00 / 12:00). "isUmrah" true only if Umrah/عمرة is mentioned. Never guess: use "" when not visible. If a year is missing use the next future date after ${today}. Don't repeat the same booking twice if it appears in two images.`;
@@ -403,7 +438,7 @@ Hotel check-in/out times: use the printed ones, else "" (we default to 14:00 / 1
     if (r.isUmrah) $("#f-type").value = "umrah";
     const got = (Array.isArray(r.items) ? r.items : []).map(x => {
       if (x.kind === "hotel") return { kind: "hotel", place: x.place, city: x.city, depDate: x.checkInDate, depTime: x.checkInTime || "14:00", arrDate: x.checkOutDate, arrTime: x.checkOutTime || "12:00", fromTz: validTz(x.tz) ? x.tz : "", ref: x.ref };
-      if (x.kind === "embassy") return { kind: "embassy", place: x.place, city: x.city, depDate: x.date, depTime: x.time, fromTz: validTz(x.tz) ? x.tz : CAIRO, ref: x.ref };
+      if (x.kind === "embassy") return { kind: "embassy", place: x.place, city: x.city, address: x.address || "", companions: (+x.applicants > 1 || (r.otherNames || []).filter(Boolean).length) ? "family" : "", depDate: x.date, depTime: x.time, fromTz: validTz(x.tz) ? x.tz : CAIRO, ref: x.ref };
       const from = String(x.from || "").toUpperCase().slice(0, 3), to = String(x.to || "").toUpperCase().slice(0, 3);
       return { kind: "flight", airline: x.airline, flightNo: String(x.flightNo || "").toUpperCase(), from, to, depDate: x.depDate, depTime: x.depTime, arrDate: x.arrDate || x.depDate, arrTime: x.arrTime,
         fromTz: AIRPORT_TZ[from] || (validTz(x.fromTz) ? x.fromTz : CAIRO), toTz: AIRPORT_TZ[to] || (validTz(x.toTz) ? x.toTz : "Asia/Riyadh"), ref: String(x.ref || "").toUpperCase() };
@@ -457,7 +492,7 @@ $("#form").addEventListener("submit", async e => {
       if (it.kind === "flight" && arrUtc && arrUtc < depUtc) arrUtc += 24 * H;
       batch.set(F.doc(F.collection(db, "trips")), {
         kind: it.kind, name, phone, type: $("#f-type").value, ref: it.ref || "", pnr: it.kind === "flight" ? (it.ref || "") : "",
-        from: it.from || "", to: it.to || "", airline: it.airline || "", flightNo: it.flightNo || "", place: it.place || "", city: it.city || "",
+        from: it.from || "", to: it.to || "", airline: it.airline || "", flightNo: it.flightNo || "", place: it.place || "", city: it.city || "", address: it.address || "", companions: it.companions || "",
         fromTz: it.fromTz || CAIRO, toTz: it.toTz || it.fromTz || CAIRO,
         depDate: it.depDate, depTime: it.depTime, arrDate: it.arrDate || "", arrTime: it.arrTime || "", depUtc, arrUtc,
         ticketIds, group, createdAt: Date.now(), createdBy: myEmail, sent: {}, notified: {}
