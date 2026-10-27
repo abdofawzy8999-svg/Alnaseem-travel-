@@ -1,9 +1,7 @@
 const CFG = self.NASEEM, V = CFG.sdk;
-const { initializeApp } = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-app.js`);
-const A = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-auth.js`);
-const F = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-firestore.js`);
-const M = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-messaging.js`);
-const AC = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-app-check.js`);
+// load all SDK modules in parallel (was one after another = slow start on mobile data)
+const SDK = n => import(`https://www.gstatic.com/firebasejs/${V}/firebase-${n}.js`);
+const [{ initializeApp }, A, F, M, AC] = await Promise.all(["app", "auth", "firestore", "messaging", "app-check"].map(SDK));
 
 const app = initializeApp(CFG.firebase);
 if (CFG.recaptchaKey) try { AC.initializeAppCheck(app, { provider: new AC.ReCaptchaEnterpriseProvider(CFG.recaptchaKey), isTokenAutoRefreshEnabled: true }); } catch (e) { console.warn("app check", e); }
@@ -22,16 +20,20 @@ const aiModels = {};
 let AIMOD = null;
 async function getModel(name) {
   if (aiModels[name]) return aiModels[name];
-  AIMOD = AIMOD || await import(`https://www.gstatic.com/firebasejs/${V}/firebase-ai.js`);
+  AIMOD = AIMOD || await SDK("ai");
   const ai = AIMOD.getAI(app, { backend: new AIMOD.GoogleAIBackend() });
-  return aiModels[name] = AIMOD.getGenerativeModel(ai, { model: name, generationConfig: { responseMimeType: "application/json", temperature: 0 } }, { timeout: 45000 });
+  return aiModels[name] = AIMOD.getGenerativeModel(ai, { model: name, generationConfig: { responseMimeType: "application/json", temperature: 0 } }, { timeout: 30000 });
 }
-async function generateWithFallback(parts) {
-  const names = CFG.aiModels || ["gemini-flash-lite-latest", "gemini-3.8-flash", "gemini-flash-latest"];
+// hard time limits: the SDK timeout doesn't always fire on mobile, so we race it ourselves
+const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout " + ms)), ms))]);
+async function generateWithFallback(parts, deadlineMs = 75000) {
+  const names = (CFG.aiModels || ["gemini-flash-lite-latest", "gemini-flash-latest"]).filter(n => !/3\.8/.test(n));
+  const end = Date.now() + deadlineMs;
   let lastErr;
   for (const name of names) {
     for (let attempt = 0; attempt < 2; attempt++) {
-      try { const m = await getModel(name); return await m.generateContent(parts); }
+      const left = end - Date.now(); if (left < 3000) throw lastErr || new Error("timeout");
+      try { const m = await withTimeout(getModel(name), 15000); return await withTimeout(m.generateContent(parts), Math.min(35000, left)); }
       catch (e) {
         lastErr = e; const msg = String(e && e.message || "");
         if (/\[404|no longer available|not found|abort|timeout/i.test(msg)) break;
@@ -42,6 +44,8 @@ async function generateWithFallback(parts) {
   }
   throw lastErr;
 }
+// warm up the AI module in the background so the first read starts faster
+function warmAI() { setTimeout(() => { getModel((CFG.aiModels || ["gemini-flash-lite-latest"])[0]).catch(() => {}); }, 2500); }
 
 /* ---------------- flight check (~24h before, Gemini + Google Search) ---------------- */
 const searchModels = {};
@@ -142,7 +146,7 @@ A.onAuthStateChanged(auth, async user => {
   $("#me-email").textContent = myEmail;
   $("#w-email").textContent = myEmail;
   show("v-app"); afterEnter();
-  startData();
+  startData(); warmAI();
 });
 $("#w-retry").onclick = () => { if (me) startData(); };
 
@@ -345,7 +349,7 @@ let images = []; // {id, data}
 function loadImage(file) { return new Promise((res, rej) => { const url = URL.createObjectURL(file); const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = url; }); }
 async function compress(file) {
   const im = await loadImage(file);
-  let max = 1400, q = 0.72, out = "";
+  let max = 1280, q = 0.7, out = "";
   for (let i = 0; i < 5; i++) {
     const k = Math.min(1, max / Math.max(im.naturalWidth, im.naturalHeight));
     const c = document.createElement("canvas"); c.width = Math.round(im.naturalWidth * k); c.height = Math.round(im.naturalHeight * k);
@@ -374,8 +378,11 @@ $("#f-file").addEventListener("change", async e => {
 let readSeq = 0;
 async function readImages(list) {
   const st = $("#f-readst"), my = ++readSeq;
-  st.className = "status"; st.textContent = `بنقرأ ${list.length === 1 ? "الصورة" : list.length + " صور"} أوتوماتيك… استنى ثواني`;
+  const label = `بنقرأ ${list.length === 1 ? "الصورة" : list.length + " صور"} أوتوماتيك… استنى ثواني`;
+  st.className = "status"; st.textContent = label;
   $("#f-save").disabled = true;
+  const t0 = Date.now();
+  const tick = setInterval(() => { if (my !== readSeq) return clearInterval(tick); const s = Math.round((Date.now() - t0) / 1000); st.textContent = `${label} (${s} ث)`; }, 1000);
   try {
     const today = new Date().toISOString().slice(0, 10);
     const prompt = `These ${list.length} image(s) are screenshots for ONE customer of an Egyptian travel agency. They can be airline e-tickets/itineraries, hotel booking confirmations, and embassy / visa-center appointment confirmations (VFS, TLS, BLS, etc.), in English or Arabic.
@@ -414,8 +421,12 @@ Hotel check-in/out times: use the printed ones, else "" (we default to 14:00 / 1
   } catch (e) {
     if (my !== readSeq) return;
     console.warn("read", e);
-    st.className = "status err"; st.textContent = "ماقدرناش نقرأ الصور دي أوتوماتيك. جرّب تاني أو ضيف البيانات بإيدك.";
-  } finally { if (my === readSeq) $("#f-save").disabled = false; }
+    const slow = /timeout/i.test(String(e && e.message));
+    st.className = "status err";
+    st.innerHTML = (slow ? "القراءة خدت وقت طويل (النت ضعيف أو الخدمة مزحومة)." : "ماقدرناش نقرأ الصور دي أوتوماتيك.")
+      + ` <button type="button" class="btn" id="f-reread" style="margin-inline-start:8px">اقرا تاني</button> أو ضيف البيانات بإيدك.`;
+    $("#f-reread").onclick = () => readImages(images.length ? images : list);
+  } finally { clearInterval(tick); if (my === readSeq) $("#f-save").disabled = false; }
 }
 
 /* ---------------- save ---------------- */

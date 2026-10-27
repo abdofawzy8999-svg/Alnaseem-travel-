@@ -26,14 +26,21 @@ self.addEventListener("notificationclick", e => {
   })());
 });
 
-const SHELL = "naseem-shell-v10";
+const SHELL = "naseem-shell-v12";
 const FILES = ["./", "./index.html", "./app.js", "./config.js", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png"];
 self.addEventListener("install", e => { self.skipWaiting(); e.waitUntil(caches.open(SHELL).then(c => c.addAll(FILES)).catch(() => {})); });
 self.addEventListener("activate", e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== SHELL).map(k => caches.delete(k)))).then(() => clients.claim())); });
 self.addEventListener("fetch", e => {
   const u = new URL(e.request.url);
   if (e.request.method !== "GET" || u.origin !== location.origin) return;
-  // network first, cache as fallback so updates show up immediately
-  e.respondWith(fetch(e.request, { cache: "no-cache" }).then(r => { const cp = r.clone(); caches.open(SHELL).then(c => c.put(e.request, cp)).catch(() => {}); return r; })
-    .catch(() => caches.match(e.request).then(r => r || caches.match("./index.html"))));
+  // network first, but don't make the user wait on a slow connection:
+  // after 2.5s use the cached copy (versioned ?v= URLs keep updates correct), and refresh the cache in the background
+  const net = fetch(e.request, { cache: "no-cache" }).then(r => { if (r.ok) { const cp = r.clone(); caches.open(SHELL).then(c => c.put(e.request, cp)).catch(() => {}); } return r; });
+  e.respondWith(new Promise(resolve => {
+    let done = false;
+    const fallback = () => caches.match(e.request).then(r => r || (e.request.mode === "navigate" ? caches.match("./index.html") : null));
+    const t = setTimeout(() => fallback().then(r => { if (r && !done) { done = true; resolve(r); } }), 2500);
+    net.then(r => { if (!done) { done = true; clearTimeout(t); resolve(r); } })
+       .catch(() => fallback().then(r => { if (!done) { done = true; clearTimeout(t); resolve(r || Response.error()); } }));
+  }));
 });
