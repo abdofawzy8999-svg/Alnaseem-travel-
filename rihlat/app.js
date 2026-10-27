@@ -230,11 +230,14 @@ function tasheerBranch(t) {
   if (/katam|kattam|قطامي/.test(s)) return "القطامية";
   if (/mohand|مهندس/.test(s)) return "المهندسين";
   if (/zayed|zayid|زايد/.test(s)) return "الشيخ زايد";
+  if (/sohag|suhag|سوهاج/.test(s)) return "سوهاج";
   if (/alex|اسكندري|إسكندري/.test(s)) return "الإسكندرية";
   return t.address || "";
 }
+const BRANCH_MAPS = { "الشيخ زايد": "https://maps.app.goo.gl/tMzGRVhczX8i1kDN8", "المهندسين": "https://maps.app.goo.gl/5NMtCQz3sB8t1PD26", "سوهاج": "https://maps.app.goo.gl/89PDpKtBZhW6LVW37" };
 function mapsLink(t) {
   const br = tasheerBranch(t);
+  if (isTasheer(t) && BRANCH_MAPS[br]) return BRANCH_MAPS[br];
   const q = isTasheer(t) ? `Tasheer Saudi Visa Center ${t.address || br || t.city || ""} Egypt` : [t.place, t.address, t.city].filter(Boolean).join(" ");
   return q.trim() ? "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(q) : "";
 }
@@ -249,10 +252,10 @@ function familyDocs(c) {
 }
 function msgText(t, k) { return msgBody(t, k).trimEnd() + "\n" + SLOGAN; }
 function msgBody(t, k) {
-  const first = (t.name || "").trim().split(/\s+/)[0] || "";
+  const first = "أ/ " + ((t.name || "").trim().split(/\s+/)[0] || "");
   const um = t.type === "umrah", kind = kindOf(t);
   const st = fmtLocal(t.depDate, t.depTime), en = fmtLocal(t.arrDate, t.arrTime);
-  const sign = `النسيم ترافيل - سافرها صح\nللتواصل: ${COMPANY_WA}`;
+  const sign = `للتواصل: ${COMPANY_WA}`;
   if (kind === "hotel") {
     if (k === "d24") return `أهلاً ${first} 👋\nمعاك النسيم ترافيل 🏨\nتذكير بحجزك بكره:\n\n🏨 ${t.place || "الفندق"}${t.city ? " - " + t.city : ""}\n📅 الدخول: ${st.d}${st.t ? " من الساعة " + st.t : ""}\n📅 الخروج: ${en.d}${en.t ? " الساعة " + en.t : ""}${t.ref ? "\n📌 رقم الحجز: " + t.ref : ""}\n\nخلي معاك الباسبور وتأكيد الحجز.\nإقامة سعيدة 🌷\n${sign}`;
     if (k === "h4") return `أهلاً ${first} 🏨\nفاضل حوالي 4 ساعات على ميعاد دخولك فندق ${t.place || ""} ⏰\n${t.ref ? "📌 رقم الحجز: " + t.ref + "\n" : ""}لو حصلت أي مشكلة في الاستلام كلمنا فوراً: ${COMPANY_WA}\nالنسيم ترافيل`;
