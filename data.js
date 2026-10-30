@@ -11,10 +11,10 @@ window.SITE = {
 
   /* ترتيب الأقسام في الصفحة الرئيسية */
   sections: [
-    { id: "umrah",   title: "العمرة",            sub: "برامج عمرة وتأشيرات عمرة",          img: "assets/site/umrah.jpg" },
-    { id: "visas",   title: "التأشيرات السياحية", sub: "السعودية • الإمارات • تركيا • البحرين", img: "assets/site/makkah.jpg" },
-    { id: "flights", title: "حجز تذاكر الطيران",  sub: "لكل الدول بأفضل سعر متاح",            icon: "✈️" },
-    { id: "hotels",  title: "حجز الفنادق",        sub: "مكة والمدينة وكل الدول",              icon: "🏨" }
+    { id: "umrah",   title: "العمرة",            sub: "برامج عمرة وتأشيرات عمرة",          img: "https://images.unsplash.com/photo-1693590614566-1d3ea9ef32f7?auto=format&fit=crop&w=1200&q=70" },
+    { id: "visas",   title: "التأشيرات السياحية", sub: "السعودية • الإمارات • تركيا • البحرين", img: "https://images.unsplash.com/photo-1512453979798-5ea266f8880c?auto=format&fit=crop&w=1200&q=70" },
+    { id: "flights", title: "حجز تذاكر الطيران",  sub: "لكل الدول بأفضل سعر متاح",            icon: "✈️", img: "https://images.unsplash.com/photo-1593182440709-4b7b56482c55?auto=format&fit=crop&w=1200&q=70" },
+    { id: "hotels",  title: "حجز الفنادق",        sub: "مكة والمدينة وكل الدول",              icon: "🏨", img: "https://images.unsplash.com/photo-1618773928121-c32242e63f39?auto=format&fit=crop&w=1200&q=70" }
   ],
 
   /* ===== العمرة ===== */
@@ -61,6 +61,7 @@ window.SITE = {
     }
   ],
 
+  umrahVisasImg: "https://images.unsplash.com/photo-1729931421786-7bbd6c7d78f6?auto=format&fit=crop&w=800&q=70",
   umrahVisas: [
     { title: "تأشيرة عمرة وكيل مصري – 80 يوم", price: 21000, points: ["بصورة الباسبور بس"] },
     { title: "تأشيرة عمرة وكيل مصري – 15 يوم", price: 16000, points: ["بصورة الباسبور بس"] },
@@ -70,7 +71,7 @@ window.SITE = {
   /* ===== التأشيرات السياحية ===== */
   visas: [
     {
-      country: "السعودية", title: "تأشيرة السعودية السياحية", tag: "سنة متعددة • إقامة 90 يوم",
+      country: "السعودية", img: "https://images.unsplash.com/photo-1694018359679-49465b4c0d61?auto=format&fit=crop&w=800&q=70", title: "تأشيرة السعودية السياحية", tag: "سنة متعددة • إقامة 90 يوم",
       options: [
         { name: "التأشيرة", price: 8500 },
         { name: "الباركود", price: 6500 },
@@ -80,12 +81,12 @@ window.SITE = {
       notes: ["بضمان الإصدار: لو اترفضت فلوسك كلها بترجعلك", "بدون ضمان: لو اترفضت بيتخصم 3,000 جنيه ويرجعلك الباقي"]
     },
     {
-      country: "السعودية", title: "تأشيرة السعودية لمقيمي الإمارات", tag: "بضمان إصدار",
+      country: "السعودية", img: "https://images.unsplash.com/photo-1694018359679-49465b4c0d61?auto=format&fit=crop&w=800&q=70", title: "تأشيرة السعودية لمقيمي الإمارات", tag: "بضمان إصدار",
       options: [ { name: "بضمان إصدار", price: 9500, strong: true, best: true } ],
       notes: ["لأي حد معاه إقامة في الإمارات", "مش محتاجة باركود حتى لو مسافر من مصر"]
     },
     {
-      country: "الإمارات", title: "تأشيرة الإمارات السياحية", tag: "مدة شهرين",
+      country: "الإمارات", img: "https://images.unsplash.com/photo-1512453979798-5ea266f8880c?auto=format&fit=crop&w=800&q=70", title: "تأشيرة الإمارات السياحية", tag: "مدة شهرين",
       options: [
         { name: "مؤهل عالي – بدون ضمان", price: 11000 },
         { name: "مؤهل عالي – بضمان إصدار", price: 18500, best: true },
@@ -95,12 +96,12 @@ window.SITE = {
       notes: ["بضمان الإصدار: لو اترفضت فلوسك كلها بترجعلك", "بدون ضمان: المبلغ غير مسترد في حالة الرفض"]
     },
     {
-      country: "تركيا", title: "تأشيرة تركيا", tag: "إصدار فوري",
+      country: "تركيا", img: "https://images.unsplash.com/photo-1589561454226-796a8aa89b05?auto=format&fit=crop&w=800&q=70", title: "تأشيرة تركيا", tag: "إصدار فوري",
       options: [ { name: "لأكبر من 45 سنة", price: 2600, strong: true, best: true } ],
       notes: ["إصدار فوري ومضمون", "من غير أي شروط"]
     },
     {
-      country: "البحرين", title: "تأشيرة البحرين", tag: "بالباسبور بس • بضمان إصدار",
+      country: "البحرين", img: "https://images.unsplash.com/photo-1748066768504-99532da7d1e9?auto=format&fit=crop&w=800&q=70", title: "تأشيرة البحرين", tag: "بالباسبور بس • بضمان إصدار",
       options: [
         { name: "14 يوم", price: 2500 },
         { name: "90 يوم", price: 3500 },
@@ -109,6 +110,9 @@ window.SITE = {
       notes: ["مطلوب صورة الباسبور بس", "الإصدار خلال 48 ساعة", "بضمان الإصدار"]
     }
   ],
+
+  /* صور من Unsplash */
+  credits: "صور: Sam Riz، Helmi Tan، David Rodrigo، Ibrahim Abdullah، Engin Yapici، Ondrej Bocek، Johny Goerend، Vojtech Bruzek على Unsplash",
 
   /* ===== مراكز تأشير (لوكيشنز) ===== */
   locations: [

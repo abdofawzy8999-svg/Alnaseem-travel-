@@ -60,7 +60,16 @@ section{padding:48px 0}
 .cat .go{margin-top:10px;align-self:flex-start;background:#fff;color:var(--navy);font-weight:900;border-radius:999px;padding:4px 18px 7px}
 
 /* section page */
-.page-head{background:linear-gradient(140deg,var(--blue),var(--navy));color:#fff;padding:26px 0}
+.page-head{background:linear-gradient(140deg,var(--blue),var(--navy));color:#fff;padding:34px 0;position:relative;overflow:hidden}
+.page-head>img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.page-head::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(10,44,99,.35),rgba(10,44,99,.93) 65%)}
+.page-head .wrap{position:relative;z-index:2}
+.card .top.ph{min-height:150px;display:flex;flex-direction:column;justify-content:flex-end;overflow:hidden}
+.card .top.ph>img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.card .top.ph::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(10,44,99,.1),rgba(10,44,99,.9))}
+.card .top.ph>*:not(img){position:relative;z-index:2}
+.cat .ic{text-shadow:0 4px 14px rgba(0,0,0,.4)}
+.credits{font-size:12px;opacity:.6;margin-top:8px}
 .page-head .back{display:inline-flex;align-items:center;gap:6px;font-weight:800;background:rgba(255,255,255,.15);border-radius:999px;padding:4px 16px 6px;margin-bottom:10px}
 .page-head h1{font-weight:900;font-size:clamp(28px,5vw,44px);line-height:1.2}
 .page-head p{font-weight:700;opacity:.9}
@@ -139,14 +148,14 @@ footer .s{color:var(--orange2);font-weight:900;font-size:20px}
 
 <main id="app"></main>
 
-<footer><div class="wrap"><div class="s" id="slogan"></div><div>عمرة • تأشيرات • طيران • فنادق</div><div id="fphone" style="direction:ltr"></div></div></footer>
+<footer><div class="wrap"><div class="s" id="slogan"></div><div>عمرة • تأشيرات • طيران • فنادق</div><div id="fphone" style="direction:ltr"></div><div class="credits" id="credits"></div></div></footer>
 
 <div class="fab">
  <a class="btn b-wa" data-wa="أهلاً، عايز أستفسر" href="#"><svg viewBox="0 0 32 32"><path fill="currentColor" d="M16 3a13 13 0 0 0-11.2 19.6L3 29l6.6-1.7A13 13 0 1 0 16 3zm7.3 18.4c-.3.9-1.8 1.7-2.5 1.8-.7.1-1.5.2-4.6-1.1a14.6 14.6 0 0 1-5.6-5c-.4-.6-1.4-1.9-1.4-3.6s.9-2.6 1.2-3c.3-.3.7-.4 1-.4h.7c.2 0 .5-.1.8.6l1.1 2.6c.1.2.2.4 0 .7l-.4.6-.5.6c-.2.2-.4.4-.2.8a10 10 0 0 0 4.6 4c.4.2.6.1.8-.1l1.1-1.3c.3-.4.5-.3.8-.2l2.5 1.2c.4.2.6.3.7.4.1.2.1.9-.2 1.8z"/></svg>واتساب</a>
  <a class="btn b-call" data-call href="#"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z"/></svg>اتصل بينا</a>
 </div>
 
-<script src="data.js?v=2"></script>
+<script src="data.js?v=3"></script>
 <script>
 (function(){
 const S = window.SITE, app = document.getElementById("app");
@@ -163,13 +172,14 @@ const acts = msg => `<div class="acts"><a class="btn b-wa" href="${waLink(msg)}"
 document.getElementById("hphone").textContent = S.phone;
 document.getElementById("fphone").textContent = S.phone;
 document.getElementById("slogan").textContent = S.slogan;
+document.getElementById("credits").textContent = S.credits || "";
 document.querySelectorAll("[data-call]").forEach(a => a.href = telLink);
 document.querySelectorAll("[data-wa]").forEach(a => { a.href = waLink(a.dataset.wa); a.target = "_blank"; });
 document.getElementById("menu").innerHTML = vis(S.sections).map(s => `<li><a href="#${s.id}" data-m="${s.id}">${esc(s.title)}</a></li>`).join("") + '<li><a href="#locations" data-m="locations">لوكيشنز</a></li>';
 
 const sections = vis(S.sections);
 function catCards(){
-  return `<div class="cats">${sections.map((s,i) => `<a class="cat" href="#${s.id}">${s.img ? `<img src="${s.img}" alt="" loading="lazy">` : `<span class="ic">${s.icon||""}</span>`}<span class="n">${i+1}</span><h3>${esc(s.title)}</h3><p>${esc(s.sub||"")}</p><span class="go">ادخل ←</span></a>`).join("")}</div>`;
+  return `<div class="cats">${sections.map((s,i) => `<a class="cat" href="#${s.id}">${s.img ? `<img src="${s.img}" alt="" loading="lazy">` : ""}${s.icon ? `<span class="ic">${s.icon}</span>` : ""}<span class="n">${i+1}</span><h3>${esc(s.title)}</h3><p>${esc(s.sub||"")}</p><span class="go">ادخل ←</span></a>`).join("")}</div>`;
 }
 function ctaBox(t){
   return `<section style="padding-top:10px"><div class="wrap"><div class="cta"><h2>${esc(t||"احجز دلوقتي – كلمنا اتصال أو واتساب")}</h2><a class="num" href="${telLink}">${S.phone}</a><div class="acts"><a class="btn b-wa" href="${waLink("أهلاً، عايز أحجز")}" target="_blank" rel="noopener" style="font-size:18px;padding:12px 26px">${WA_SVG}واتساب</a><a class="btn b-or" href="${telLink}" style="font-size:18px;padding:12px 26px">${CALL_SVG}اتصال</a></div></div></div></section>`;
@@ -195,7 +205,8 @@ function home(){
   ${locs()}${ctaBox()}`;
 }
 function head(id, title, sub, tabs){
-  return `<div class="page-head"><div class="wrap"><a class="back" href="#">→ الرئيسية</a><h1>${esc(title)}</h1><p>${esc(sub||"")}</p><div class="tabs">${sections.map(s => `<a href="#${s.id}" class="${s.id===id?"on":""}">${esc(s.title)}</a>`).join("")}</div></div></div>`;
+  const sec = sections.find(x=>x.id===id)||{};
+  return `<div class="page-head">${sec.img?`<img src="${sec.img}" alt="">`:""}<div class="wrap"><a class="back" href="#">→ الرئيسية</a><h1>${esc(title)}</h1><p>${esc(sub||"")}</p><div class="tabs">${sections.map(s => `<a href="#${s.id}" class="${s.id===id?"on":""}">${esc(s.title)}</a>`).join("")}</div></div></div>`;
 }
 function program(p){
   const rooms = Object.keys(p.prices);
@@ -211,8 +222,9 @@ function program(p){
    ${acts(`أهلاً، عايز أحجز ${p.title} – ${p.date} (${p.airline})`)}
   </div></div>`;
 }
-function visaCard(v, extraMsg){
-  return `<div class="card"><div class="top nd"><h3>${esc(v.title)}</h3>${v.tag?`<span class="tag2">${esc(v.tag)}</span>`:""}</div><div class="body">
+function visaCard(v, img){
+  img = v.img || img;
+  return `<div class="card"><div class="top nd ${img?"ph":""}">${img?`<img src="${img}" alt="" loading="lazy">`:""}<h3>${esc(v.title)}</h3>${v.tag?`<span class="tag2">${esc(v.tag)}</span>`:""}</div><div class="body">
    ${v.options && v.options.length ? `<div class="opts">${v.options.map(o => `<div class="opt ${o.strong?"strong":""} ${o.best?"best":""}"><span>${esc(o.name)}</span><b>${fmt(o.price)} ج</b></div>`).join("")}</div>` : ""}
    ${v.price ? `<div class="from">السعر <b>${fmt(v.price)}</b> جنيه</div>` : ""}
    ${(v.notes||v.points||[]).length ? `<ul class="notes">${(v.notes||v.points).map(n=>`<li>${esc(n)}</li>`).join("")}</ul>` : ""}
@@ -226,7 +238,7 @@ function umrah(){
    <div class="cards">${vis(S.umrahPrograms).map(program).join("")}</div>
    <p style="color:var(--muted);font-weight:700;margin-top:10px">* الأسعار بالجنيه المصري للفرد الواحد</p>
    <h2 class="sub-h">تأشيرات العمرة</h2>
-   <div class="cards">${vis(S.umrahVisas).map(v => visaCard(v)).join("")}</div>
+   <div class="cards">${vis(S.umrahVisas).map(v => visaCard(v, S.umrahVisasImg)).join("")}</div>
   </div></section>${ctaBox("احجز عمرتك – كلمنا اتصال أو واتساب")}`;
 }
 function visas(){
