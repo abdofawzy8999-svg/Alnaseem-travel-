@@ -241,10 +241,15 @@ function umrah(){
    <div class="cards">${vis(S.umrahVisas).map(v => visaCard(v, S.umrahVisasImg)).join("")}</div>
   </div></section>${ctaBox("احجز عمرتك – كلمنا اتصال أو واتساب")}`;
 }
-function visas(){
-  return head("visas","التأشيرات السياحية","أسعار واضحة، وبضمان إصدار لو حابب") + `<section><div class="wrap">
+const VISA_SLUGS = {saudi:"السعودية", uae:"الإمارات", turkey:"تركيا", bahrain:"البحرين"};
+function visas(slug){
+  const c = VISA_SLUGS[slug];
+  const list = vis(S.visas).filter(v => !c || v.country===c);
+  const title = c ? `تأشيرة ${c}` : "التأشيرات السياحية";
+  return head("visas",title,"أسعار واضحة، وبضمان إصدار لو حابب") + `<section><div class="wrap">
    <div class="disc" style="background:#e9f8ef;border-color:var(--green);color:#11603a">🛡️ بضمان الإصدار = لو التأشيرة اترفضت فلوسك كلها بترجعلك</div>
-   <div class="cards">${vis(S.visas).map(v => visaCard(v)).join("")}</div>
+   <div class="cards">${list.map(v => visaCard(v)).join("")}</div>
+   ${c ? `<p style="text-align:center;margin-top:18px"><a href="#visas" style="font-weight:800;color:var(--blue)">شوف كل التأشيرات السياحية ←</a></p>` : ""}
   </div></section>${ctaBox("ابعت صورة الباسبور على واتساب ونبدأ")}`;
 }
 function simple(id, title, sub, points, msg){
@@ -255,6 +260,7 @@ function render(){
   let html;
   if(h==="umrah") html = umrah();
   else if(h==="visas") html = visas();
+  else if(h.startsWith("visa-")) html = visas(h.slice(5));
   else if(h==="flights") html = simple("flights","حجز تذاكر الطيران","لكل الدول بأفضل سعر متاح",["ابعتلنا الوجهة وتاريخ الذهاب والعودة وعدد المسافرين","نطلعلك أرخص وأنسب رحلة وترانزيت مريح","تذكير قبل الطيارة بيوم وقبلها بـ 4 ساعات"],"أهلاً، عايز أحجز تذكرة طيران من ... إلى ... بتاريخ ...");
   else if(h==="hotels") html = simple("hotels","حجز الفنادق","مكة والمدينة وكل الدول",["فنادق مكة والمدينة قريبة من الحرم وعلى ميزانيتك","فنادق في كل الدول","تأكيد الحجز وتذكير بميعاد الدخول"],"أهلاً، عايز أحجز فندق في ... من ... لـ ...");
   else html = home();
