@@ -694,6 +694,13 @@ async function testNotification() {
     st.className = "status good"; st.textContent = "اتبعت إشعار تجريبي. لو مظهرش في شريط الموبايل، الإشعارات مقفولة من إعدادات الموبايل.";
   } catch (e) { st.className = "status err"; st.textContent = "الموبايل رفض يعرض الإشعار: " + (e && e.message || e); }
 }
+// keep this phone's registration fresh: re-register whenever the app comes back to the screen (at most every 6 hours)
+let lastPushRefresh = Date.now();
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden || !me || !("Notification" in window) || Notification.permission !== "granted") return;
+  if (Date.now() - lastPushRefresh < 6 * 3600e3) return;
+  lastPushRefresh = Date.now(); enablePush(true);
+});
 function setupPushUi() {
   $("#n-on").onclick = () => enablePush(false);
   $("#n-test").onclick = testNotification;
@@ -719,12 +726,28 @@ function setupInstallUi() {
 }
 
 /* ---------------- team (admin) ---------------- */
+let devicesByEmail = {};
+function pushBadge(em) {
+  const d = devicesByEmail[em];
+  if (!d || !d.n) return `<span class="small" style="color:#c62828;font-weight:700">🔕 مفعّلش الإشعارات</span>`;
+  const days = Math.floor((Date.now() - d.last) / 86400e3);
+  return `<span class="small" style="color:#2e7d32;font-weight:700">🔔 الإشعارات شغالة على ${d.n} ${d.n === 1 ? "جهاز" : "أجهزة"}</span>` + (days >= 7 ? ` <span class="small muted">(آخر فتح من ${days} يوم)</span>` : "");
+}
+function drawTeam() {
+  const list = Object.keys(team).sort();
+  $("#team-list").innerHTML = list.length ? list.map(em => `<div class="team-row"><span><b>${esc(team[em].name || "")}</b> <span class="mono small">${esc(em)}</span><br>${pushBadge(em)}</span><button class="btn ghost small" data-rm-team="${esc(em)}" style="min-height:36px;padding:4px 10px">شيل</button></div>`).join("") : `<div class="small muted">لسه مفيش حد متضاف.</div>`;
+}
 function watchTeam() {
   unsubTeam = F.onSnapshot(F.collection(db, "team"), snap => {
     team = {}; snap.docs.forEach(d => team[d.id] = d.data());
-    const list = Object.keys(team).sort();
-    $("#team-list").innerHTML = list.length ? list.map(em => `<div class="team-row"><span><b>${esc(team[em].name || "")}</b> <span class="mono small">${esc(em)}</span></span><button class="btn ghost small" data-rm-team="${esc(em)}" style="min-height:36px;padding:4px 10px">شيل</button></div>`).join("") : `<div class="small muted">لسه مفيش حد متضاف.</div>`;
-    render();
+    drawTeam(); render();
+  }, () => {});
+  // which employees can actually receive notifications (admin can read the device list)
+  F.onSnapshot(F.collection(db, "tokens"), snap => {
+    devicesByEmail = {};
+    snap.docs.forEach(d => { const x = d.data(), em = (x.email || "").toLowerCase(); if (!em) return;
+      const c = devicesByEmail[em] || (devicesByEmail[em] = { n: 0, last: 0 }); c.n++; c.last = Math.max(c.last, x.updatedAt || 0); });
+    drawTeam();
   }, () => {});
 }
 $("#team-add").onclick = async () => {
