@@ -11,6 +11,10 @@ const db = new Firestore({ projectId });
 const auth = new GoogleAuth({ scopes: ["https://www.googleapis.com/auth/cloud-platform", "https://www.googleapis.com/auth/firebase.messaging"] });
 const client = await auth.getClient();
 const H = 3600e3, now = Date.now();
+const ADMIN = (process.env.ADMIN_EMAIL || "abdofawzy8999@gmail.com").toLowerCase();
+const teamNames = {};
+try { (await db.collection("team").get()).docs.forEach(d => teamNames[d.id] = (d.data().name || "").trim()); } catch (_) {}
+const nameOfEmail = em => teamNames[em] || em.split("@")[0];
 
 const kindOf = t => t.kind || "flight";
 function schedule(t) {
@@ -50,6 +54,16 @@ async function push(email, title, body, tag) {
     }
   }
   console.log(`push to ${email}: ${ok}/${tokens.length} devices`);
+  return { ok, total: tokens.length };
+}
+// If an employee's phone can't receive the alert, tell the admin so no customer message gets missed
+async function pushOrEscalate(email, title, body, tag) {
+  const r = await push(email, title, body, tag);
+  if (r.ok === 0 && email !== ADMIN) {
+    const why = r.total === 0 ? "مفعّلش الإشعارات على موبايله" : "الإشعارات مش بتوصل لموبايله";
+    await push(ADMIN, `⚠️ ${nameOfEmail(email)}: ${title}`, `${body}\n— ${nameOfEmail(email)} ${why}، كلّمه يبعت الرسايل أو يفعّل الإشعارات من «الإعدادات».`, "naseem-escalate");
+  }
+  return r;
 }
 
 /* ---------- flight check via AeroDataBox (RapidAPI) ---------- */
@@ -108,7 +122,7 @@ for (const d of (await db.collection("trips").where("depUtc", ">", now).get()).d
 for (const [email, list] of Object.entries(changesByOwner)) {
   if (!email) continue;
   const body = list.map(({ t, check }) => `${t.name} · ${t.flightNo}: ${check.status === "cancelled" ? "اتلغت" : `المعاد الجديد ${check.depDate} ${check.depTime}`}`).join("\n");
-  await push(email, list.length === 1 ? `⚠️ تغيير في رحلة ${list[0].t.name}` : `⚠️ تغيير في ${list.length} رحلات`, body + "\nافتح التطبيق واعتمد المعاد الجديد", "naseem-change");
+  await pushOrEscalate(email, list.length === 1 ? `⚠️ تغيير في رحلة ${list[0].t.name}` : `⚠️ تغيير في ${list.length} رحلات`, body + "\nافتح التطبيق واعتمد المعاد الجديد", "naseem-change");
   for (const x of list) await x.ref.update({ "check.alerted": now });
 }
 
@@ -129,7 +143,7 @@ for (const [email, due] of Object.entries(dueByOwner)) {
   if (!email) continue;
   const title = due.length === 1 ? `رسالة واتساب لـ ${due[0].t.name}` : `${due.length} رسايل واتساب للعملاء لازم تتبعت`;
   const body = due.slice(0, 6).map(x => `${x.t.name} · ${LABEL[kindOf(x.t)][x.k]} (${what(x.t)})`).join("\n") + (due.length > 6 ? `\n+${due.length - 6} كمان` : "");
-  await push(email, title, body, "naseem-due");
+  await pushOrEscalate(email, title, body, "naseem-due");
 }
 if (all.length) {
   const batch = db.batch();
