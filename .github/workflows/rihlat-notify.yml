@@ -8,6 +8,10 @@ on:
         description: "Optional test lookup: FLIGHTNO|FROM|YYYY-MM-DD|HH:MM"
         required: false
         default: ""
+      test_push:
+        description: "Optional: send a test push and list devices (emails comma-separated, or all)"
+        required: false
+        default: ""
 permissions:
   contents: write
   id-token: write
@@ -35,6 +39,7 @@ jobs:
         env:
           FIREBASE_PROJECT: naseem-rihlat
           TEST_FLIGHT: ${{ github.event.inputs.test_flight }}
+          TEST_PUSH: ${{ github.event.inputs.test_push }}
           AERODATABOX_KEY: ${{ secrets.AERODATABOX_KEY }}
           APP_URL: https://abdofawzy8999-svg.github.io/Alnaseem-travel-/rihlat/
         run: node notify.mjs
