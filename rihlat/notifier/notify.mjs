@@ -34,6 +34,11 @@ async function tokensFor(email) {
   const s = await db.collection("tokens").where("email", "==", email).get();
   return s.docs.map(d => d.id);
 }
+async function devicesFor(email) {
+  const s = await db.collection("tokens").where("email", "==", email).get();
+  return s.docs.map(d => { const x = d.data(); const ua = String(x.ua || ""); const kind = /iphone|ipad/i.test(ua) ? "iPhone" : /android/i.test(ua) ? "Android" : /windows/i.test(ua) ? "Windows PC" : /mac os/i.test(ua) ? "Mac" : "other";
+    return `${kind} · registered ${x.updatedAt ? new Date(x.updatedAt).toISOString().slice(0, 16) : "?"} · ${ua.slice(0, 70)}`; });
+}
 async function push(email, title, body, tag) {
   const tokens = await tokensFor(email);
   let ok = 0;
@@ -94,6 +99,18 @@ async function checkFlight(t) {
     depDate: dep.date, depTime: dep.time, arrDate: arrS.date, arrTime: arrS.time,
     note: cancelled ? "الرحلة ظاهرة ملغية على أنظمة الطيران" : changed ? `المعاد على أنظمة الطيران ${dep.date} ${dep.time}` : "المعاد زي ما هو", sources: [`https://www.flightradar24.com/data/flights/${number.toLowerCase()}`],
     changed: !!changed, resolved: false };
+}
+
+// manual diagnostics: list every registered device and send a test push from the server
+if (process.env.TEST_PUSH) {
+  const emails = process.env.TEST_PUSH === "all"
+    ? [...new Set((await db.collection("tokens").get()).docs.map(d => String(d.data().email || "").toLowerCase()).filter(Boolean)), ...Object.keys(teamNames)]
+    : process.env.TEST_PUSH.split(",").map(e => e.trim().toLowerCase());
+  for (const em of [...new Set(emails)]) {
+    const devs = await devicesFor(em);
+    console.log(`DEVICES ${em}: ${devs.length}`); devs.forEach(d => console.log(`   - ${d}`));
+    if (devs.length) await push(em, "تجربة إشعار من السيرفر ✓", "لو الإشعار ده وصلك، تذكيرات العملاء هتوصلك بنفس الطريقة.", "naseem-servertest");
+  }
 }
 
 if (process.env.TEST_FLIGHT && ADB_KEY) {
