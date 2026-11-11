@@ -681,7 +681,14 @@ async function enablePush(silent) {
     });
     return true;
   } catch (e) {
-    if (!silent) { st.className = "status err"; st.textContent = "التفعيل ماتمّش. جرّب تاني بعد شوية."; }
+    const code = String((e && (e.code || e.name)) || ""), msg = String((e && e.message) || e || "");
+    let hint = "جرّب تاني بعد شوية.";
+    if (/push service|AbortError|token-subscribe|failed-service-worker|unsupported-browser/i.test(code + " " + msg))
+      hint = "الموبايل ده مش قادر يوصل لخدمة إشعارات جوجل. لو الموبايل هواوي أو من غير خدمات جوجل، الإشعارات مش هتشتغل عليه. لو غير كدا: حدّث Chrome وافتح التطبيق من Chrome.";
+    else if (/permission|PERMISSION_DENIED|insufficient/i.test(code + " " + msg)) hint = "الحساب ده مش متسجّل في الفريق. خلّي المدير يضيفك من «الإعدادات».";
+    else if (/app-check|appCheck|recaptcha/i.test(code + " " + msg)) hint = "مشكلة في التحقق من الجهاز. اقفل التطبيق وافتحه تاني.";
+    if (!silent) { st.className = "status err"; st.textContent = "التفعيل ماتمّش. " + hint + " (السبب: " + (code + " " + msg).trim().slice(0, 140) + ")"; }
+    else { const h = $("#push-hint"); if (h && h.hidden) { h.textContent = "الإشعارات مش شغالة على الموبايل ده. افتح «الإعدادات» ودوس «فعّل الإشعارات»."; h.hidden = false; } }
     console.warn(e); return false;
   }
 }
