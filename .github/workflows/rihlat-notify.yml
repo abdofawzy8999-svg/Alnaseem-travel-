@@ -40,6 +40,9 @@ jobs:
           FIREBASE_PROJECT: naseem-rihlat
           TEST_FLIGHT: ${{ github.event.inputs.test_flight }}
           TEST_PUSH: ${{ github.event.inputs.test_push }}
+          GREEN_API_URL: ${{ secrets.GREEN_API_URL }}
+          GREEN_ID: ${{ secrets.GREEN_ID }}
+          GREEN_TOKEN: ${{ secrets.GREEN_TOKEN }}
           AERODATABOX_KEY: ${{ secrets.AERODATABOX_KEY }}
           APP_URL: https://abdofawzy8999-svg.github.io/Alnaseem-travel-/rihlat/
         run: node notify.mjs
