@@ -518,7 +518,8 @@ $("#form").addEventListener("submit", async e => {
         from: it.from || "", to: it.to || "", airline: it.airline || "", flightNo: it.flightNo || "", place: it.place || "", city: it.city || "", address: it.address || "", companions: it.companions || "",
         fromTz: it.fromTz || CAIRO, toTz: it.toTz || it.fromTz || CAIRO,
         depDate: it.depDate, depTime: it.depTime, arrDate: it.arrDate || "", arrTime: it.arrTime || "", depUtc, arrUtc,
-        ticketIds, group, createdAt: Date.now(), createdBy: myEmail, sent: {}, notified: {}
+        ticketIds, group, createdAt: Date.now(), createdBy: myEmail, sent: {}, notified: {},
+        ...(CFG.autoWhatsApp ? { autoConfirm: true } : {})
       };
       batch.set(F.doc(F.collection(db, "trips")), rec); saved.push(rec);
     }
@@ -527,8 +528,12 @@ $("#form").addEventListener("submit", async e => {
     const link = "https://wa.me/" + phone + "?text=" + encodeURIComponent(confirmText(saved));
     resetForm(); toast("اتحفظ ✓");
     st.className = "status good";
-    st.innerHTML = `اتحفظ ✓ ${items.length} ${items.length === 1 ? "حجز" : "حجوزات"} واتجدولت رسايلهم. <a class="btn" href="${esc(link)}" target="_blank" rel="noopener" style="margin-inline-start:8px">📩 ابعت رسالة التأكيد للعميل</a>`;
-    setTimeout(() => { location.href = link; }, 400);
+    if (CFG.autoWhatsApp) {
+      st.textContent = `اتحفظ ✓ ${items.length} ${items.length === 1 ? "حجز" : "حجوزات"}. رسالة التأكيد والتذكيرات هتتبعت للعميل تلقائي من رقم الشركة (التأكيد خلال ساعة تقريباً).`;
+    } else {
+      st.innerHTML = `اتحفظ ✓ ${items.length} ${items.length === 1 ? "حجز" : "حجوزات"} واتجدولت رسايلهم. <a class="btn" href="${esc(link)}" target="_blank" rel="noopener" style="margin-inline-start:8px">📩 ابعت رسالة التأكيد للعميل</a>`;
+      setTimeout(() => { location.href = link; }, 400);
+    }
   } catch (err) {
     console.warn(err);
     st.className = "status err"; st.textContent = err && err.code === "permission-denied" ? "معندكش صلاحية تضيف." : "الحفظ ماتمّش. اتأكد من الإنترنت وجرّب تاني.";

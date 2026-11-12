@@ -12,6 +12,7 @@ self.NASEEM = {
   vapidKey: "BGQLj47hlbHkrs_A43ZnnXgeqI3lrq5EHAFlszlW9pQ4noDZLq1_0oFkjolju-Pk7OxceRngpzocDrA9mimHmtY",
   ownerEmail: "abdofawzy8999@gmail.com",
   companyWhatsApp: "01021762000",
+  autoWhatsApp: false, // true = confirmations & reminders go out automatically from the linked WhatsApp number
   sdk: "12.3.0",
   recaptchaKey: "6Lf0AAAuAAAAANxzoaSDALo9eejI2af-qQvC3-Kn",
   aiModels: ["gemini-flash-lite-latest", "gemini-flash-latest"]
