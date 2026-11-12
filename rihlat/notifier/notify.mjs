@@ -4,6 +4,7 @@
 // Credentials come from GitHub OIDC -> Google Workload Identity (no stored key).
 import { Firestore } from "@google-cloud/firestore";
 import { GoogleAuth } from "google-auth-library";
+import { msgText, confirmText } from "./messages.mjs";
 
 const projectId = process.env.FIREBASE_PROJECT || "naseem-rihlat";
 const APP_URL = process.env.APP_URL || "https://abdofawzy8999-svg.github.io/Alnaseem-travel-/rihlat/";
@@ -70,6 +71,30 @@ async function pushOrEscalate(email, title, body, tag) {
   }
   return r;
 }
+
+
+/* ---------- automatic WhatsApp sending (GREEN-API, linked by QR) ---------- */
+const GREEN_URL = (process.env.GREEN_API_URL || "").replace(/\/+$/, ""), GREEN_ID = process.env.GREEN_ID || "", GREEN_TOKEN = process.env.GREEN_TOKEN || "";
+const AUTO = !!(GREEN_URL && GREEN_ID && GREEN_TOKEN);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+let sentThisRun = 0;
+const MAX_PER_RUN = 40; // keep volume low and natural to protect the number
+async function waSend(phone, text) {
+  if (!AUTO || !/^\d{10,15}$/.test(String(phone || "")) || sentThisRun >= MAX_PER_RUN) return false;
+  if (sentThisRun) await sleep(4000 + Math.random() * 6000); // human-like gap between messages
+  try {
+    const r = await fetch(`${GREEN_URL}/waInstance${GREEN_ID}/sendMessage/${GREEN_TOKEN}`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chatId: `${phone}@c.us`, message: text, linkPreview: false })
+    });
+    const body = await r.text();
+    if (!r.ok || !/idMessage/.test(body)) { console.log(`whatsapp send failed (${r.status}): ${body.slice(0, 160)}`); return false; }
+    sentThisRun++;
+    console.log(`whatsapp sent to ${String(phone).slice(0, 5)}***`);
+    return true;
+  } catch (e) { console.log(`whatsapp send error: ${e.message}`); return false; }
+}
+console.log(AUTO ? "auto WhatsApp: ON" : "auto WhatsApp: OFF (no GREEN-API settings)");
 
 /* ---------- flight check via AeroDataBox (RapidAPI) ---------- */
 const ADB_KEY = process.env.AERODATABOX_KEY || "";
@@ -154,8 +179,39 @@ for (const d of snap.docs) {
     if (now >= from - 5 * 60e3 && now <= until) (dueByOwner[t.createdBy || ""] = dueByOwner[t.createdBy || ""] || []).push({ ref: d.ref, t, k });
   }
 }
+// 2a) booking confirmations for new bookings saved in automatic mode (one message per booking group)
+if (AUTO) {
+  const fresh = await db.collection("trips").where("createdAt", ">", now - 48 * H).get();
+  const groups = {};
+  for (const d of fresh.docs) { const t = d.data(); if (!t.autoConfirm || t.confirmSent) continue; (groups[t.group || d.id] = groups[t.group || d.id] || []).push({ ref: d.ref, t }); }
+  for (const list of Object.values(groups)) {
+    list.sort((a, b) => a.t.depUtc - b.t.depUtc);
+    const ok = await waSend(list[0].t.phone, confirmText(list.map(x => x.t)));
+    if (ok) for (const x of list) await x.ref.update({ confirmSent: { at: Date.now(), by: "auto" } });
+  }
+}
+
+// 2b) send due reminders automatically; anything that couldn't be sent goes to the employee as before
+const autoDone = {};
+if (AUTO) for (const [email, due] of Object.entries(dueByOwner)) {
+  const left = [];
+  for (const x of due) {
+    if (await waSend(x.t.phone, msgText(x.t, x.k))) {
+      await x.ref.update({ [`sent.${x.k}`]: { at: Date.now(), by: "auto" }, [`notified.${x.k}`]: now });
+      (autoDone[email] = autoDone[email] || []).push(x);
+    } else left.push(x);
+  }
+  dueByOwner[email] = left;
+}
+for (const [email, done] of Object.entries(autoDone)) {
+  if (!email || !done.length) continue;
+  const body = done.slice(0, 6).map(x => `${x.t.name} · ${LABEL[kindOf(x.t)][x.k]}`).join("\n") + (done.length > 6 ? `\n+${done.length - 6} كمان` : "");
+  await push(email, done.length === 1 ? `✅ اتبعتت تلقائي لـ ${done[0].t.name}` : `✅ اتبعت ${done.length} رسايل تلقائي`, body, "naseem-auto");
+}
+for (const k of Object.keys(dueByOwner)) if (!dueByOwner[k].length) delete dueByOwner[k];
+
 const all = Object.values(dueByOwner).flat();
-console.log(`trips=${snap.size} due=${all.length}`);
+console.log(`trips=${snap.size} due=${all.length} autoSent=${sentThisRun}`);
 for (const [email, due] of Object.entries(dueByOwner)) {
   if (!email) continue;
   const title = due.length === 1 ? `رسالة واتساب لـ ${due[0].t.name}` : `${due.length} رسايل واتساب للعملاء لازم تتبعت`;
